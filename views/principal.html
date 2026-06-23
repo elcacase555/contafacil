@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>ContaFácil</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+    background: #F1EFE8; margin: 0; padding: 40px 24px;
+  }
+  .pagina { max-width: 700px; margin: 0 auto; }
+
+  @keyframes entrada { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; margin-bottom: 28px; }
+  .marca { display: flex; align-items: baseline; gap: 7px; }
+  .marca span.nombre { font-weight: 600; font-size: 18px; letter-spacing: -0.2px; color: #5F5E5A; }
+  .punto-vivo {
+    width: 6px; height: 6px; border-radius: 50%; background: #1D9E75;
+    display: inline-block; margin-bottom: 5px; animation: pulso 2s ease-in-out infinite;
+  }
+
+  .saludo-fila { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; }
+  .saludo-sub { font-size: 13px; color: #888780; margin: 0 0 2px; }
+  .saludo-nombre { font-family: Georgia, serif; font-size: 28px; margin: 0; color: #2C2C2A; }
+
+  button {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 13px; font-family: inherit;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  button:hover { background: #F1EFE8; }
+  button:active { transform: scale(0.97); }
+
+  .btn-añadir {
+    font-weight: 600; background: #1D9E75; color: #04342C; border-color: #1D9E75;
+    padding: 9px 16px;
+  }
+  .btn-añadir:hover { background: #18895F; transform: translateY(-1px); }
+
+  .etiqueta-conteo {
+    font-size: 12px; color: #888780; margin: 0 0 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  .lista { display: flex; flex-direction: column; gap: 10px; }
+
+  .tarjeta {
+    display: flex; align-items: center; border-radius: 12px; overflow: hidden;
+    border: 1px solid #D3D1C7; background: white; cursor: pointer;
+    animation: entrada 0.4s ease both;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+  }
+  .tarjeta:hover { transform: translateX(4px); border-color: #B4B2A9; }
+  .tarjeta:hover .franja { width: 8px; }
+  .tarjeta:hover .flecha { transform: translateX(3px); color: #2C2C2A; }
+
+  .franja { width: 5px; align-self: stretch; background: #1D9E75; transition: width 0.18s ease; flex-shrink: 0; }
+  .tarjeta-cuerpo { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; }
+  .tarjeta-nombre { font-weight: 600; font-size: 14px; margin: 0; color: #2C2C2A; }
+  .tarjeta-datos { display: flex; gap: 14px; margin-top: 5px; }
+  .tarjeta-dato {
+    font-size: 12px; color: #888780; font-family: 'Courier New', monospace;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .flecha { font-size: 18px; color: #888780; transition: transform 0.18s ease, color 0.18s ease; }
+
+  .vacio {
+    padding: 50px 20px; text-align: center; color: #888780; font-size: 14px;
+    border: 1px dashed #D3D1C7; border-radius: 12px;
+  }
+  .nota { font-size: 12px; color: #B4B2A9; margin-top: 18px; text-align: center; }
+
+  /* Modal */
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(30,28,24,0.5);
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  .overlay.abierto { display: flex; }
+  .modal {
+    background: white; border-radius: 14px; width: 340px; padding: 22px;
+    animation: entrada 0.25s ease both;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 4px; color: #2C2C2A; }
+  .modal p.ayuda { font-size: 12px; color: #888780; margin: 0 0 18px; }
+  .modal label { font-size: 12px; color: #5F5E5A; display: block; margin-bottom: 4px; }
+  .modal input {
+    width: 100%; padding: 9px 11px; margin-bottom: 13px;
+    border: 1px solid #B4B2A9; border-radius: 8px; font-size: 14px; font-family: inherit;
+  }
+  .modal input:focus { outline: none; border-color: #1D9E75; }
+  .modal-botones { display: flex; gap: 8px; margin-top: 6px; }
+  .modal-botones button { flex: 1; }
+  .modal-botones .btn-añadir { padding: 9px 16px; }
+  .modal-error { color: #A32D2D; font-size: 12px; margin: -4px 0 12px; display: none; }
+
+  /* Modal de Términos y Condiciones (bloqueante) */
+  .overlay-terminos {
+    display: none; position: fixed; inset: 0; background: rgba(30,28,24,0.6);
+    align-items: center; justify-content: center; z-index: 20; padding: 20px;
+  }
+  .overlay-terminos.abierto { display: flex; }
+  .modal-terminos {
+    background: white; border-radius: 14px; width: 100%; max-width: 560px;
+    max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+    animation: entrada 0.3s ease both;
+  }
+  .terminos-header { padding: 20px 24px 14px; border-bottom: 1px solid #D3D1C7; }
+  .terminos-header h2 { font-size: 16px; margin: 0 0 4px; color: #2C2C2A; }
+  .terminos-header p { font-size: 12px; color: #888780; margin: 0; }
+  .terminos-cuerpo {
+    padding: 18px 24px; overflow-y: auto; flex: 1; font-size: 13px; color: #444441; line-height: 1.6;
+  }
+  .terminos-cuerpo h3 { font-size: 13px; color: #1D9E75; margin: 18px 0 6px; }
+  .terminos-cuerpo h3:first-child { margin-top: 0; }
+  .terminos-cuerpo p { margin: 0 0 10px; }
+  .terminos-aviso-borrador {
+    background: #FFF7E6; border: 1px solid #E8C97A; border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; color: #8A6D1B; margin-bottom: 16px;
+  }
+  .terminos-footer { padding: 16px 24px; border-top: 1px solid #D3D1C7; }
+  .terminos-progreso { font-size: 11px; color: #B4B2A9; margin: 0 0 10px; text-align: center; }
+  .terminos-botones { display: flex; gap: 8px; }
+  .terminos-botones button { flex: 1; }
+  .btn-rechazar { color: #A32D2D; border-color: #D9A8A8; }
+  .btn-rechazar:hover { background: #FBEAEA; }
+  .btn-aceptar:disabled { background: #D3D1C7; border-color: #D3D1C7; color: #888780; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+  <div class="pagina">
+
+    <div class="topbar">
+      <div class="marca">
+        <span class="nombre">contafácil</span>
+        <span class="punto-vivo"></span>
+      </div>
+      <button onclick="cerrarSesion()"><i>&#8617;</i> Cerrar sesión</button>
+    </div>
+
+    <div class="saludo-fila">
+      <div>
+        <p class="saludo-sub">Bienvenido de vuelta</p>
+        <p class="saludo-nombre" id="saludoNombre">Cargando...</p>
+      </div>
+      <button class="btn-añadir" onclick="abrirModal()">+ Añadir cliente</button>
+    </div>
+
+    <p class="etiqueta-conteo" id="etiquetaConteo">Cargando clientes...</p>
+
+    <div id="contenedorLista" class="lista"></div>
+
+    <p class="nota">Solo tú ves estos clientes. Otros contadores que usen el sistema tienen su propia lista, separada.</p>
+
+  </div>
+
+  <!-- Modal: Añadir cliente -->
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h2>Añadir cliente</h2>
+      <p class="ayuda">Las credenciales se guardan cifradas.</p>
+
+      <form id="formCliente">
+        <label for="nombreCliente">Nombre del cliente</label>
+        <input type="text" id="nombreCliente" placeholder="Ej: Comercial Andina SAC" required>
+
+        <label for="ruc">RUC</label>
+        <input type="text" id="ruc" placeholder="20601234567" maxlength="11" required>
+
+        <label for="usuarioSol">Usuario SOL</label>
+        <input type="text" id="usuarioSol" placeholder="Usuario de Clave SOL" required>
+
+        <label for="claveSol">Clave SOL</label>
+        <input type="password" id="claveSol" placeholder="••••••••" required>
+
+        <p class="modal-error" id="modalError"></p>
+
+        <div class="modal-botones">
+          <button type="button" onclick="cerrarModal()">Cancelar</button>
+          <button type="submit" class="btn-añadir">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Términos y Condiciones (bloqueante, primer login) -->
+  <div class="overlay-terminos" id="overlayTerminos">
+    <div class="modal-terminos">
+      <div class="terminos-header">
+        <h2 id="terminosTitulo">Términos y Condiciones</h2>
+        <p>Debes leer y aceptar para poder usar ContaFácil.</p>
+      </div>
+
+      <div class="terminos-cuerpo" id="terminosCuerpo">
+        <div class="terminos-aviso-borrador">
+          Cargando...
+        </div>
+      </div>
+
+      <div class="terminos-footer">
+        <p class="terminos-progreso" id="terminosProgreso">Desplázate hasta el final para poder continuar ↓</p>
+        <div class="terminos-botones">
+          <button class="btn-rechazar" onclick="rechazarTerminos()">No acepto</button>
+          <button class="btn-añadir btn-aceptar" id="btnAceptarTerminos" disabled onclick="aceptarTerminos()">He leído y acepto</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function cargarSesion() {
+      const resp = await fetch('/api/mi-sesion');
+      const data = await resp.json();
+      document.getElementById('saludoNombre').textContent = data.nombre;
+
+      if (data.debeAceptarTerminos) {
+        await mostrarModalTerminos();
+      }
+    }
+
+    async function mostrarModalTerminos() {
+      const resp = await fetch('/api/terminos');
+      const data = await resp.json();
+
+      document.getElementById('terminosTitulo').textContent = data.titulo;
+      document.getElementById('terminosCuerpo').innerHTML = `
+        <div class="terminos-aviso-borrador">
+          ⚠️ Documento de referencia. ContaFácil puede actualizar estos términos.
+        </div>
+        ${data.contenidoHtml}
+      `;
+
+      const overlay = document.getElementById('overlayTerminos');
+      overlay.classList.add('abierto');
+
+      const cuerpo = document.getElementById('terminosCuerpo');
+      const btnAceptar = document.getElementById('btnAceptarTerminos');
+      const progreso = document.getElementById('terminosProgreso');
+
+      cuerpo.addEventListener('scroll', () => {
+        const llegoAlFinal = cuerpo.scrollTop + cuerpo.clientHeight >= cuerpo.scrollHeight - 10;
+        if (llegoAlFinal) {
+          btnAceptar.disabled = false;
+          progreso.textContent = 'Ya puedes aceptar los términos.';
+        }
+      });
+
+      // Si el contenido es corto y no necesita scroll, habilitamos directo
+      if (cuerpo.scrollHeight <= cuerpo.clientHeight + 10) {
+        btnAceptar.disabled = false;
+        progreso.textContent = 'Ya puedes aceptar los términos.';
+      }
+    }
+
+    async function aceptarTerminos() {
+      await fetch('/api/terminos/aceptar', { method: 'POST' });
+      document.getElementById('overlayTerminos').classList.remove('abierto');
+    }
+
+    async function rechazarTerminos() {
+      const confirmar = confirm('Si no aceptas los términos no podrás usar ContaFácil. Se cerrará tu sesión. ¿Confirmas?');
+      if (!confirmar) return;
+
+      await fetch('/api/terminos/rechazar', { method: 'POST' });
+      window.location.href = '/login';
+    }
+
+    async function cerrarSesion() {
+      await fetch('/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
+
+    function abrirModal() {
+      document.getElementById('overlay').classList.add('abierto');
+      document.getElementById('modalError').style.display = 'none';
+    }
+
+    function cerrarModal() {
+      document.getElementById('overlay').classList.remove('abierto');
+      document.getElementById('formCliente').reset();
+    }
+
+    async function cargarClientes() {
+      const resp = await fetch('/api/clientes');
+      const clientes = await resp.json();
+      const contenedor = document.getElementById('contenedorLista');
+      const etiqueta = document.getElementById('etiquetaConteo');
+
+      if (clientes.length === 0) {
+        etiqueta.textContent = 'Sin clientes todavía';
+        contenedor.innerHTML = '<p class="vacio">Aún no tienes clientes. Usa "+ Añadir cliente" para registrar el primero.</p>';
+        return;
+      }
+
+      etiqueta.textContent = clientes.length + (clientes.length === 1 ? ' cliente activo' : ' clientes activos');
+
+      let html = '';
+      clientes.forEach((c, i) => {
+        const retardo = (i * 0.08).toFixed(2);
+        html += `
+          <div class="tarjeta" style="animation-delay:${retardo}s" onclick="abrirCliente(${c.id})">
+            <div class="franja"></div>
+            <div class="tarjeta-cuerpo">
+              <div>
+                <p class="tarjeta-nombre">${escaparHtml(c.nombre_cliente)}</p>
+                <div class="tarjeta-datos">
+                  <span class="tarjeta-dato">🪪 ${escaparHtml(c.ruc)}</span>
+                  <span class="tarjeta-dato">👤 ${escaparHtml(c.usuario_sol)}</span>
+                </div>
+              </div>
+              <span class="flecha">→</span>
+            </div>
+          </div>
+        `;
+      });
+
+      contenedor.innerHTML = html;
+    }
+
+    function escaparHtml(texto) {
+      const div = document.createElement('div');
+      div.textContent = texto;
+      return div.innerHTML;
+    }
+
+    function abrirCliente(id) {
+      window.location.href = '/cliente/' + id;
+    }
+
+    document.getElementById('formCliente').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('modalError');
+      errorEl.style.display = 'none';
+
+      const datos = {
+        nombreCliente: document.getElementById('nombreCliente').value,
+        ruc: document.getElementById('ruc').value,
+        usuarioSol: document.getElementById('usuarioSol').value,
+        claveSol: document.getElementById('claveSol').value,
+      };
+
+      const resp = await fetch('/api/clientes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datos),
+      });
+
+      const resultado = await resp.json();
+
+      if (!resultado.ok) {
+        errorEl.textContent = resultado.mensaje;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      cerrarModal();
+      cargarClientes();
+    });
+
+    cargarSesion();
+    cargarClientes();
+  </script>
+
+</body>
+</html>

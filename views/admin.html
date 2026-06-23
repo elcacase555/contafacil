@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>ContaFácil - Panel de administrador</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; background: #F1EFE8; margin: 0; padding: 40px; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; max-width: 900px; margin-left: auto; margin-right: auto; }
+  h1 { font-size: 20px; color: #2C2C2A; margin: 0; }
+  .sub { font-size: 12px; color: #5F5E5A; margin-top: 4px; }
+
+  button {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #F1EFE8; }
+  .btn-primario { background: #2C2C2A; color: white; border-color: #2C2C2A; font-weight: bold; }
+  .btn-primario:hover { background: #000; }
+  .btn-peligro { color: #A32D2D; border-color: #D9A8A8; }
+  .btn-peligro:hover { background: #FBEAEA; }
+  .btn-pequeno { padding: 5px 9px; font-size: 11px; }
+
+  .panel {
+    background: white; border: 1px solid #D3D1C7; border-radius: 12px;
+    padding: 20px; max-width: 900px; margin: 0 auto;
+  }
+  .panel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: #F1EFE8; }
+  th { text-align: left; padding: 10px 12px; color: #5F5E5A; font-weight: bold; }
+  td { padding: 12px; border-top: 1px solid #D3D1C7; vertical-align: middle; }
+  .acciones-td { text-align: right; white-space: nowrap; }
+  .acciones-td button { margin-left: 6px; }
+
+  .badge { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: bold; }
+  .badge.activo { background: #E1F0E5; color: #1A7A3C; }
+  .badge.inactivo { background: #F0E1E1; color: #A32D2D; }
+  .badge.tyc-si { background: #E1F0E5; color: #1A7A3C; }
+  .badge.tyc-no { background: #F0E1E1; color: #A32D2D; }
+
+  .vacio { padding: 40px 12px; text-align: center; color: #888780; font-size: 14px; }
+
+  /* Modales */
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  .overlay.abierto { display: flex; }
+  .modal { background: white; border-radius: 12px; width: 340px; padding: 20px; }
+  .modal h2 { font-size: 15px; margin: 0 0 4px; }
+  .modal p.ayuda { font-size: 12px; color: #5F5E5A; margin: 0 0 16px; }
+  .modal label { font-size: 12px; color: #5F5E5A; display: block; margin-bottom: 4px; }
+  .modal input {
+    width: 100%; padding: 8px 10px; margin-bottom: 12px;
+    border: 1px solid #B4B2A9; border-radius: 6px; font-size: 14px;
+  }
+  .modal-botones { display: flex; gap: 8px; margin-top: 6px; }
+  .modal-botones button { flex: 1; }
+  .modal-error { color: #A32D2D; font-size: 12px; margin: -4px 0 12px; display: none; }
+  .credenciales-resultado {
+    background: #F1EFE8; border-radius: 8px; padding: 12px; font-size: 13px;
+    margin-top: 12px; display: none; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1>🔧 Panel de administrador</h1>
+      <p class="sub">Gestiona los contadores que usan ContaFácil</p>
+    </div>
+    <button onclick="cerrarSesion()">Cerrar sesión</button>
+  </div>
+
+  <div class="panel">
+    <div class="panel-top">
+      <p style="margin:0; font-weight:bold; font-size:14px;">Contadores</p>
+      <button class="btn-primario" onclick="abrirModalCrear()">+ Nuevo contador</button>
+    </div>
+
+    <div id="contenedorTabla">
+      <p class="vacio">Cargando...</p>
+    </div>
+  </div>
+
+  <!-- Modal: Crear contador -->
+  <div class="overlay" id="overlayCrear">
+    <div class="modal">
+      <h2>Nuevo contador</h2>
+      <p class="ayuda">Estos datos se los entregas tú directamente al contador.</p>
+
+      <form id="formCrear">
+        <label for="nombreNuevo">Nombre del contador</label>
+        <input type="text" id="nombreNuevo" placeholder="Ej: Juan Pérez" required>
+
+        <label for="usuarioNuevo">Usuario para iniciar sesión</label>
+        <input type="text" id="usuarioNuevo" placeholder="Ej: jperez" required>
+
+        <label for="claveNueva">Contraseña</label>
+        <input type="text" id="claveNueva" placeholder="Ej: Conta2026!" required>
+
+        <p class="modal-error" id="errorCrear"></p>
+
+        <div class="modal-botones">
+          <button type="button" onclick="cerrarModalCrear()">Cancelar</button>
+          <button type="submit" class="btn-primario">Crear</button>
+        </div>
+      </form>
+
+      <div class="credenciales-resultado" id="resultadoCrear"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Cambiar contraseña -->
+  <div class="overlay" id="overlayClave">
+    <div class="modal">
+      <h2>Cambiar contraseña</h2>
+      <p class="ayuda" id="claveContadorNombre"></p>
+
+      <form id="formClave">
+        <label for="claveNuevaCambio">Nueva contraseña</label>
+        <input type="text" id="claveNuevaCambio" placeholder="Ej: Conta2026Nueva!" required>
+
+        <p class="modal-error" id="errorClave"></p>
+
+        <div class="modal-botones">
+          <button type="button" onclick="cerrarModalClave()">Cancelar</button>
+          <button type="submit" class="btn-primario">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let contadorIdEnEdicion = null;
+
+    async function cerrarSesion() {
+      await fetch('/admin/logout', { method: 'POST' });
+      window.location.href = '/admin/login';
+    }
+
+    function escaparHtml(texto) {
+      const div = document.createElement('div');
+      div.textContent = texto;
+      return div.innerHTML;
+    }
+
+    async function cargarContadores() {
+      const resp = await fetch('/api/admin/contadores');
+      const contadores = await resp.json();
+      const contenedor = document.getElementById('contenedorTabla');
+
+      if (contadores.length === 0) {
+        contenedor.innerHTML = '<p class="vacio">Aún no has creado ningún contador. Usa "+ Nuevo contador".</p>';
+        return;
+      }
+
+      let filas = '';
+      for (const c of contadores) {
+        const badge = c.activo
+          ? '<span class="badge activo">Activo</span>'
+          : '<span class="badge inactivo">Inactivo</span>';
+
+        const badgeTyc = c.terminos_aceptados
+          ? '<span class="badge tyc-si">✅ Sí</span>'
+          : '<span class="badge tyc-no">❌ No</span>';
+
+        filas += `
+          <tr>
+            <td>${escaparHtml(c.nombre)}</td>
+            <td>${escaparHtml(c.usuario)}</td>
+            <td>${c.total_clientes}</td>
+            <td>${badge}</td>
+            <td>${badgeTyc}</td>
+            <td class="acciones-td">
+              <button class="btn-pequeno" onclick="abrirModalClave(${c.id}, '${escaparHtml(c.nombre)}')">Cambiar clave</button>
+              <button class="btn-pequeno" onclick="alternarActivo(${c.id}, ${c.activo ? 'false' : 'true'})">${c.activo ? 'Desactivar' : 'Activar'}</button>
+              <button class="btn-pequeno btn-peligro" onclick="eliminarContador(${c.id}, '${escaparHtml(c.nombre)}')">Eliminar</button>
+            </td>
+          </tr>
+        `;
+      }
+
+      contenedor.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Usuario</th>
+              <th>Clientes</th>
+              <th>Estado</th>
+              <th>Acepto TyC</th>
+              <th class="acciones-td">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>${filas}</tbody>
+        </table>
+      `;
+    }
+
+    // ── Crear contador ──────────────────────────────────────
+    function abrirModalCrear() {
+      document.getElementById('overlayCrear').classList.add('abierto');
+      document.getElementById('errorCrear').style.display = 'none';
+      document.getElementById('resultadoCrear').style.display = 'none';
+      document.getElementById('formCrear').reset();
+      document.getElementById('formCrear').style.display = 'block';
+    }
+
+    function cerrarModalCrear() {
+      document.getElementById('overlayCrear').classList.remove('abierto');
+    }
+
+    document.getElementById('formCrear').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('errorCrear');
+      errorEl.style.display = 'none';
+
+      const nombre = document.getElementById('nombreNuevo').value;
+      const usuario = document.getElementById('usuarioNuevo').value;
+      const clave = document.getElementById('claveNueva').value;
+
+      const resp = await fetch('/api/admin/contadores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, usuario, clave }),
+      });
+
+      const resultado = await resp.json();
+
+      if (!resultado.ok) {
+        errorEl.textContent = resultado.mensaje;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      document.getElementById('formCrear').style.display = 'none';
+      const resultadoEl = document.getElementById('resultadoCrear');
+      resultadoEl.innerHTML = `
+        ✅ Contador creado. Entrégale estos datos:<br><br>
+        <b>Usuario:</b> ${escaparHtml(usuario)}<br>
+        <b>Contraseña:</b> ${escaparHtml(clave)}<br><br>
+        <button class="btn-primario" style="width:100%;" onclick="cerrarModalCrear(); cargarContadores();">Listo</button>
+      `;
+      resultadoEl.style.display = 'block';
+    });
+
+    // ── Activar / desactivar ────────────────────────────────
+    async function alternarActivo(id, nuevoEstado) {
+      await fetch(`/api/admin/contadores/${id}/activo`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activo: nuevoEstado === 'true' }),
+      });
+      cargarContadores();
+    }
+
+    // ── Cambiar contraseña ───────────────────────────────────
+    function abrirModalClave(id, nombre) {
+      contadorIdEnEdicion = id;
+      document.getElementById('claveContadorNombre').textContent = 'Contador: ' + nombre;
+      document.getElementById('errorClave').style.display = 'none';
+      document.getElementById('formClave').reset();
+      document.getElementById('overlayClave').classList.add('abierto');
+    }
+
+    function cerrarModalClave() {
+      document.getElementById('overlayClave').classList.remove('abierto');
+      contadorIdEnEdicion = null;
+    }
+
+    document.getElementById('formClave').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('errorClave');
+      errorEl.style.display = 'none';
+
+      const clave = document.getElementById('claveNuevaCambio').value;
+
+      const resp = await fetch(`/api/admin/contadores/${contadorIdEnEdicion}/clave`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clave }),
+      });
+
+      const resultado = await resp.json();
+
+      if (!resultado.ok) {
+        errorEl.textContent = resultado.mensaje;
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      alert('Contraseña actualizada. Nueva contraseña: ' + clave);
+      cerrarModalClave();
+      cargarContadores();
+    });
+
+    // ── Eliminar ─────────────────────────────────────────────
+    async function eliminarContador(id, nombre) {
+      const confirmar = confirm(`¿Eliminar a "${nombre}"? Esto también borrará todos sus clientes SUNAT guardados. Esta acción no se puede deshacer.`);
+      if (!confirmar) return;
+
+      await fetch(`/api/admin/contadores/${id}`, { method: 'DELETE' });
+      cargarContadores();
+    }
+
+    cargarContadores();
+  </script>
+
+</body>
+</html>

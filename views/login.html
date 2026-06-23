@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>ContaFácil - Iniciar sesión</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #F1EFE8;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .caja {
+    background: #FFFFFF;
+    border: 1px solid #D3D1C7;
+    border-radius: 12px;
+    padding: 32px 28px;
+    width: 320px;
+  }
+  .caja h1 {
+    font-size: 18px;
+    margin: 0 0 4px;
+    color: #2C2C2A;
+  }
+  .caja p {
+    font-size: 13px;
+    color: #5F5E5A;
+    margin: 0 0 20px;
+  }
+  label {
+    font-size: 13px;
+    color: #444441;
+    display: block;
+    margin-bottom: 6px;
+  }
+  input {
+    width: 100%;
+    padding: 9px 10px;
+    margin-bottom: 14px;
+    border: 1px solid #B4B2A9;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  button {
+    width: 100%;
+    padding: 10px;
+    background: #185FA5;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  button:hover { background: #0C447C; }
+  #error {
+    color: #A32D2D;
+    font-size: 13px;
+    margin-top: 10px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+  <div class="caja">
+    <h1>ContaFácil</h1>
+    <p>Ingresa con el usuario y contraseña que te entregaron.</p>
+
+    <form id="formLogin">
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" name="usuario" autocomplete="username" required>
+
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" name="clave" autocomplete="current-password" required>
+
+      <button type="submit">Iniciar sesión</button>
+      <p id="error"></p>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('formLogin');
+    const errorEl = document.getElementById('error');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.style.display = 'none';
+
+      const usuario = document.getElementById('usuario').value;
+      const clave = document.getElementById('clave').value;
+
+      const resp = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario, clave }),
+      });
+
+      const data = await resp.json();
+
+      if (data.ok) {
+        window.location.href = '/';
+      } else {
+        errorEl.textContent = data.mensaje;
+        errorEl.style.display = 'block';
+      }
+    });
+  </script>
+
+</body>
+</html>

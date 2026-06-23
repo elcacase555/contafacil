@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>ContaFácil - Descargar</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+    background: #F1EFE8; margin: 0; padding: 40px 24px;
+  }
+
+  @keyframes entrada { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .panel {
+    background: white; border: 1px solid #D3D1C7; border-radius: 14px;
+    padding: 22px; max-width: 460px; margin: 0 auto;
+    animation: entrada 0.4s ease both;
+  }
+  .volver {
+    padding: 6px 12px; border-radius: 8px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 12px; margin-bottom: 16px;
+    transition: transform 0.15s ease;
+  }
+  .volver:hover { border-color: #888780; transform: translateX(-2px); }
+
+  .titulo-top { display: flex; align-items: center; gap: 9px; }
+  .titulo-top span {
+    font-size: 16px; width: 32px; height: 32px; border-radius: 8px;
+    background: #F1EFE8; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  h1 { font-family: Georgia, serif; font-size: 19px; margin: 0; color: #2C2C2A; font-weight: normal; }
+  .sub { font-size: 12px; color: #888780; margin: 6px 0 22px; font-family: 'Courier New', monospace; }
+
+  label { font-size: 13px; color: #5F5E5A; display: block; margin-bottom: 6px; font-weight: 500; }
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid #B4B2A9;
+    border-radius: 8px; font-size: 14px; font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: #1D9E75; }
+
+  /* Selector de paquete (pestañas) */
+  .paquete-tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+  .paquete-tab {
+    flex: 1; padding: 9px 6px; border-radius: 8px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 13px; font-weight: 600; text-align: center;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .paquete-tab .nombre-completo { display: block; font-size: 10px; font-weight: 400; color: #888780; margin-top: 1px; }
+  .paquete-tab.activo { background: #1D9E75; border-color: #1D9E75; color: #04342C; }
+  .paquete-tab.activo .nombre-completo { color: #0A5A3F; }
+  .paquete-tab:hover:not(.activo) { background: #F1EFE8; }
+
+  /* Selector de tipo de comprobante (radio) */
+  .tipo-opciones { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .tipo-opcion {
+    display: flex; align-items: center; gap: 9px; padding: 10px 12px;
+    border: 1px solid #D3D1C7; border-radius: 8px; cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .tipo-opcion:hover { background: #F1EFE8; }
+  .tipo-opcion.seleccionado { border-color: #1D9E75; background: #F0FAF6; }
+  .tipo-opcion input { width: auto; margin: 0; accent-color: #1D9E75; }
+  .tipo-opcion-texto { font-size: 13px; color: #2C2C2A; }
+  .tipo-opcion-texto small { display: block; color: #888780; font-size: 11px; margin-top: 1px; }
+
+  .fila-carpeta { display: flex; gap: 8px; margin-bottom: 20px; }
+  .fila-carpeta input { flex: 1; }
+  .fila-carpeta button {
+    white-space: nowrap; padding: 9px 13px; border-radius: 8px;
+    border: 1px solid #B4B2A9; background: white; cursor: pointer; font-size: 13px;
+    transition: background 0.15s ease;
+  }
+  .fila-carpeta button:hover { background: #F1EFE8; }
+
+  .fila-fecha { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .fecha-label { font-size: 11px; color: #B4B2A9; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+  .btn-iniciar {
+    width: 100%; padding: 11px; margin-top: 16px; border-radius: 8px; border: 1px solid #1D9E75;
+    background: #1D9E75; color: #04342C; font-weight: 600; font-size: 14px; cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .btn-iniciar:hover { background: #18895F; transform: translateY(-1px); }
+  .btn-iniciar:active { transform: scale(0.98); }
+  .btn-iniciar:disabled { background: #D3D1C7; border-color: #D3D1C7; color: #888780; cursor: not-allowed; transform: none; }
+
+  .error { color: #A32D2D; font-size: 12px; margin-top: 10px; display: none; }
+
+  /* Progreso */
+  #seccionProgreso { display: none; margin-top: 6px; }
+  .procesando-fila { display: flex; align-items: center; gap: 8px; }
+  .punto-procesando {
+    width: 8px; height: 8px; border-radius: 50%; background: #1D9E75;
+    animation: pulso 1.2s ease-in-out infinite;
+  }
+  @keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .barra-fondo { height: 8px; background: #F1EFE8; border-radius: 999px; overflow: hidden; margin-top: 12px; }
+  .barra-relleno { height: 100%; width: 0%; background: #1D9E75; transition: width 0.3s ease; }
+  .log {
+    margin-top: 16px; background: #F1EFE8; border-radius: 10px; padding: 12px 14px;
+    font-size: 12px; font-family: 'Courier New', monospace; color: #444441; max-height: 200px; overflow-y: auto;
+    white-space: pre-wrap; line-height: 1.6;
+  }
+  .estado-final { font-size: 13px; margin-top: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+  <div class="panel">
+    <button class="volver" id="btnVolver">← Volver a opciones</button>
+
+    <div class="titulo-top">
+      <span id="iconoOpcion">📄</span>
+      <h1 id="tituloOpcion">Descargar</h1>
+    </div>
+    <p class="sub" id="datosCliente">Cargando...</p>
+
+    <div id="seccionFormulario">
+
+      <label>Paquete de comprobante</label>
+      <div class="paquete-tabs" id="paqueteTabs">
+        <div class="paquete-tab activo" data-paquete="FE" onclick="elegirPaquete('FE')">
+          FE
+          <span class="nombre-completo">Facturas</span>
+        </div>
+        <div class="paquete-tab" data-paquete="NC" onclick="elegirPaquete('NC')">
+          NC
+          <span class="nombre-completo">Notas Créd.</span>
+        </div>
+        <div class="paquete-tab" data-paquete="ND" onclick="elegirPaquete('ND')">
+          ND
+          <span class="nombre-completo">Notas Déb.</span>
+        </div>
+      </div>
+
+      <label>Tipo de comprobante</label>
+      <div class="tipo-opciones" id="tipoOpciones">
+        <label class="tipo-opcion seleccionado" data-tipo="emitidas">
+          <input type="radio" name="tipoComprobante" value="emitidas" checked onchange="actualizarSeleccionTipo()">
+          <span class="tipo-opcion-texto">Emitidas<small>Comprobantes que tu cliente emitió</small></span>
+        </label>
+        <label class="tipo-opcion" data-tipo="recibidas">
+          <input type="radio" name="tipoComprobante" value="recibidas" onchange="actualizarSeleccionTipo()">
+          <span class="tipo-opcion-texto">Recibidas<small>Comprobantes que tu cliente recibió</small></span>
+        </label>
+        <label class="tipo-opcion" data-tipo="ambas">
+          <input type="radio" name="tipoComprobante" value="ambas" onchange="actualizarSeleccionTipo()">
+          <span class="tipo-opcion-texto">Ambas<small>Descarga emitidas y recibidas (toma más tiempo)</small></span>
+        </label>
+      </div>
+
+      <label>Carpeta de destino</label>
+      <div class="fila-carpeta">
+        <input type="text" id="carpetaDestino" placeholder="Escribe o pega la ruta, o usa 'Elegir'...">
+        <button onclick="elegirCarpeta()">📁 Elegir</button>
+      </div>
+
+      <label>Periodo a descargar</label>
+      <div class="fila-fecha">
+        <div>
+          <p class="fecha-label">Desde (mes)</p>
+          <select id="mesDesde"></select>
+        </div>
+        <div>
+          <p class="fecha-label">Desde (año)</p>
+          <select id="anioDesde"></select>
+        </div>
+      </div>
+      <div class="fila-fecha">
+        <div>
+          <p class="fecha-label">Hasta (mes)</p>
+          <select id="mesHasta"></select>
+        </div>
+        <div>
+          <p class="fecha-label">Hasta (año)</p>
+          <select id="anioHasta"></select>
+        </div>
+      </div>
+
+      <p class="error" id="error"></p>
+
+      <button class="btn-iniciar" id="btnIniciar" onclick="iniciarDescarga()">⬇ Iniciar descarga</button>
+    </div>
+
+    <div id="seccionProgreso">
+      <div class="procesando-fila">
+        <span class="punto-procesando"></span>
+        <p style="font-size:13px; margin: 0; color: #5F5E5A;">Procesando...</p>
+      </div>
+      <div class="barra-fondo"><div class="barra-relleno" id="barraRelleno"></div></div>
+      <div class="log" id="log"></div>
+      <p class="estado-final" id="estadoFinal"></p>
+    </div>
+  </div>
+
+  <script>
+    const partes = window.location.pathname.split('/');
+    const clienteId = partes[2];
+    const opcion = partes[3]; // pdf | xml | excel | consolidado | todo
+
+    const INFO_OPCIONES = {
+      pdf:         { icono: '📄', titulo: 'Descargar PDF' },
+      xml:         { icono: '🗂️', titulo: 'Descargar XML' },
+      excel:       { icono: '📊', titulo: 'Descargar Excel' },
+      consolidado: { icono: '📋', titulo: 'Excel consolidado' },
+      todo:        { icono: '📦', titulo: 'Todo lo anterior' },
+    };
+
+    const NOMBRES_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+    let paqueteSeleccionado = 'FE';
+
+    document.getElementById('btnVolver').onclick = () => window.location.href = '/cliente/' + clienteId;
+
+    function elegirPaquete(paquete) {
+      paqueteSeleccionado = paquete;
+      document.querySelectorAll('.paquete-tab').forEach(tab => {
+        tab.classList.toggle('activo', tab.dataset.paquete === paquete);
+      });
+    }
+
+    function actualizarSeleccionTipo() {
+      document.querySelectorAll('.tipo-opcion').forEach(opt => {
+        const radio = opt.querySelector('input');
+        opt.classList.toggle('seleccionado', radio.checked);
+      });
+    }
+
+    function llenarSelectoresFecha() {
+      const anioActual = new Date().getFullYear();
+      const anios = [anioActual - 1, anioActual, anioActual + 1];
+
+      for (const sel of ['mesDesde', 'mesHasta']) {
+        const el = document.getElementById(sel);
+        NOMBRES_MES.forEach((nombre, i) => {
+          const op = document.createElement('option');
+          op.value = i + 1;
+          op.textContent = nombre;
+          el.appendChild(op);
+        });
+      }
+
+      for (const sel of ['anioDesde', 'anioHasta']) {
+        const el = document.getElementById(sel);
+        anios.forEach(anio => {
+          const op = document.createElement('option');
+          op.value = anio;
+          op.textContent = anio;
+          if (anio === anioActual) op.selected = true;
+          el.appendChild(op);
+        });
+      }
+
+      document.getElementById('mesDesde').value = 1; // Enero por defecto
+      document.getElementById('mesHasta').value = new Date().getMonth() + 1; // mes actual
+    }
+
+    async function cargarCliente() {
+      const info = INFO_OPCIONES[opcion];
+      document.getElementById('iconoOpcion').textContent = info.icono;
+      document.getElementById('tituloOpcion').textContent = info.titulo;
+
+      const resp = await fetch('/api/clientes/' + clienteId);
+      const cliente = await resp.json();
+      document.getElementById('datosCliente').textContent = cliente.nombre_cliente + ' · RUC ' + cliente.ruc;
+    }
+
+    async function elegirCarpeta() {
+      const resp = await fetch('/api/elegir-carpeta', { method: 'POST' });
+      const data = await resp.json();
+      if (data.ok && data.ruta) {
+        document.getElementById('carpetaDestino').value = data.ruta;
+      }
+    }
+
+    async function iniciarDescarga() {
+      const errorEl = document.getElementById('error');
+      errorEl.style.display = 'none';
+
+      const carpetaDestino = document.getElementById('carpetaDestino').value;
+      if (!carpetaDestino) {
+        errorEl.textContent = 'Primero elige una carpeta de destino.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const tipoComprobante = document.querySelector('input[name="tipoComprobante"]:checked').value;
+
+      const mesDesde = document.getElementById('mesDesde').value;
+      const anioDesde = document.getElementById('anioDesde').value;
+      const mesHasta = document.getElementById('mesHasta').value;
+      const anioHasta = document.getElementById('anioHasta').value;
+
+      document.getElementById('btnIniciar').disabled = true;
+      document.getElementById('seccionFormulario').style.display = 'none';
+      document.getElementById('seccionProgreso').style.display = 'block';
+
+      const resp = await fetch('/api/descargar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clienteId, tipo: opcion, carpetaDestino,
+          mesDesde, anioDesde, mesHasta, anioHasta,
+          paquete: paqueteSeleccionado, tipoComprobante,
+        }),
+      });
+
+      const data = await resp.json();
+
+      if (!data.ok) {
+        mostrarErrorInicio(data.mensaje);
+        return;
+      }
+
+      conectarProgreso(data.jobId);
+    }
+
+    function mostrarErrorInicio(mensaje) {
+      document.getElementById('seccionFormulario').style.display = 'block';
+      document.getElementById('seccionProgreso').style.display = 'none';
+      document.getElementById('btnIniciar').disabled = false;
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = mensaje;
+      errorEl.style.display = 'block';
+    }
+
+    function agregarLinea(texto) {
+      const logEl = document.getElementById('log');
+      logEl.textContent += texto + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function conectarProgreso(jobId) {
+      const fuente = new EventSource('/api/progreso/' + jobId);
+
+      fuente.onmessage = (evento) => {
+        const datos = JSON.parse(evento.data);
+
+        if (datos.mensaje) {
+          agregarLinea(datos.mensaje);
+        }
+
+        // Si el evento trae descargados/total, actualizamos la barra
+        if (typeof datos.descargados === 'number' && typeof datos.total === 'number' && datos.total > 0) {
+          const pct = Math.round((datos.descargados / datos.total) * 100);
+          document.getElementById('barraRelleno').style.width = pct + '%';
+        }
+
+        if (datos.finalizado) {
+          fuente.close();
+          document.getElementById('barraRelleno').style.width = '100%';
+          const estadoEl = document.getElementById('estadoFinal');
+          estadoEl.textContent = datos.mensaje || (datos.ok ? '🎉 Completado' : '❌ Ocurrió un error');
+          estadoEl.style.color = datos.ok ? '#1A7A3C' : '#A32D2D';
+        }
+      };
+
+      fuente.onerror = () => {
+        fuente.close();
+        const estadoEl = document.getElementById('estadoFinal');
+        estadoEl.textContent = '⚠️ Se perdió la conexión de progreso (el proceso puede seguir corriendo en segundo plano).';
+        estadoEl.style.color = '#A32D2D';
+      };
+    }
+
+    llenarSelectoresFecha();
+    cargarCliente();
+  </script>
+
+</body>
+</html>

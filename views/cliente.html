@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>ContaFácil - Cliente</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+    background: #F1EFE8; margin: 0; padding: 40px 24px;
+  }
+  .pagina { max-width: 720px; margin: 0 auto; }
+
+  @keyframes entrada { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .volver {
+    padding: 6px 12px; border-radius: 8px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 12px; margin-bottom: 18px;
+    transition: background 0.15s ease;
+  }
+  .volver:hover { background: white; border-color: #888780; transform: translateX(-2px); }
+
+  .encabezado { margin-bottom: 24px; animation: entrada 0.4s ease both; }
+  .encabezado-nombre { font-family: Georgia, serif; font-size: 26px; margin: 0; color: #2C2C2A; }
+  .encabezado-datos { display: flex; gap: 14px; margin-top: 8px; }
+  .encabezado-dato {
+    font-size: 12px; color: #888780; font-family: 'Courier New', monospace;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .tarjeta {
+    border: 1px solid #D3D1C7; border-radius: 12px; padding: 16px; background: white;
+    animation: entrada 0.4s ease both;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+  }
+  .tarjeta:hover { transform: translateY(-2px); border-color: #B4B2A9; }
+  .tarjeta.destacada { border: 2px solid #1D9E75; grid-column: 1 / -1; }
+
+  .tarjeta-top { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+  .tarjeta-icono {
+    width: 30px; height: 30px; border-radius: 8px; background: #F1EFE8;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;
+  }
+  .tarjeta.destacada .tarjeta-icono { background: #E1F5EE; }
+  .tarjeta-titulo { font-weight: 600; font-size: 14px; margin: 0; color: #2C2C2A; }
+  .tarjeta-desc { font-size: 12px; color: #888780; margin: 0 0 12px; line-height: 1.45; min-height: 48px; }
+
+  .btn-seleccionar {
+    width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #B4B2A9;
+    background: white; cursor: pointer; font-size: 12px; font-family: inherit;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .btn-seleccionar:hover { background: #F1EFE8; }
+  .btn-seleccionar:active { transform: scale(0.97); }
+  .btn-seleccionar.primario { background: #1D9E75; color: #04342C; border-color: #1D9E75; font-weight: 600; }
+  .btn-seleccionar.primario:hover { background: #18895F; }
+</style>
+</head>
+<body>
+
+  <div class="pagina">
+    <button class="volver" onclick="window.location.href='/'">← Volver a clientes</button>
+
+    <div class="encabezado">
+      <p class="encabezado-nombre" id="nombreCliente">Cargando...</p>
+      <div class="encabezado-datos" id="datosCliente"></div>
+    </div>
+
+    <div class="grid">
+
+      <div class="tarjeta" style="animation-delay:0.04s">
+        <div class="tarjeta-top">
+          <span class="tarjeta-icono">📄</span>
+          <p class="tarjeta-titulo">PDF</p>
+        </div>
+        <p class="tarjeta-desc">Selecciona las fechas del periodo de tiempo de donde quieres descargar las facturas de tu cliente en PDF.</p>
+        <button class="btn-seleccionar" onclick="irA('pdf')">Seleccionar →</button>
+      </div>
+
+      <div class="tarjeta" style="animation-delay:0.08s">
+        <div class="tarjeta-top">
+          <span class="tarjeta-icono">🗂️</span>
+          <p class="tarjeta-titulo">XML</p>
+        </div>
+        <p class="tarjeta-desc">Selecciona las fechas del periodo de tiempo de donde quieres descargar las facturas de tu cliente en XML.</p>
+        <button class="btn-seleccionar" onclick="irA('xml')">Seleccionar →</button>
+      </div>
+
+      <div class="tarjeta" style="animation-delay:0.12s">
+        <div class="tarjeta-top">
+          <span class="tarjeta-icono">📊</span>
+          <p class="tarjeta-titulo">Excel</p>
+        </div>
+        <p class="tarjeta-desc">Selecciona las fechas del periodo de tiempo de donde quieres descargar las facturas de tu cliente en Excel.</p>
+        <button class="btn-seleccionar" onclick="irA('excel')">Seleccionar →</button>
+      </div>
+
+      <div class="tarjeta" style="animation-delay:0.16s">
+        <div class="tarjeta-top">
+          <span class="tarjeta-icono">📋</span>
+          <p class="tarjeta-titulo">Excel consolidado</p>
+        </div>
+        <p class="tarjeta-desc">Una tabla en Excel con todas las facturas del cliente, incluyendo tabla dinámica y segmentación de datos.</p>
+        <button class="btn-seleccionar" onclick="irA('consolidado')">Seleccionar →</button>
+      </div>
+
+      <div class="tarjeta destacada" style="animation-delay:0.2s">
+        <div class="tarjeta-top">
+          <span class="tarjeta-icono">📦</span>
+          <p class="tarjeta-titulo">Todo lo anterior</p>
+        </div>
+        <p class="tarjeta-desc">Completa todas las funciones anteriores: te da las facturas en PDF, XML, Excel y el consolidado.</p>
+        <button class="btn-seleccionar primario" onclick="irA('todo')">Seleccionar →</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const clienteId = window.location.pathname.split('/')[2];
+
+    async function cargarCliente() {
+      const resp = await fetch('/api/clientes/' + clienteId);
+      if (!resp.ok) {
+        document.getElementById('nombreCliente').textContent = 'Cliente no encontrado';
+        return;
+      }
+      const cliente = await resp.json();
+      document.getElementById('nombreCliente').textContent = cliente.nombre_cliente;
+      document.getElementById('datosCliente').innerHTML = `
+        <span class="encabezado-dato">🪪 ${escaparHtml(cliente.ruc)}</span>
+        <span class="encabezado-dato">👤 ${escaparHtml(cliente.usuario_sol)}</span>
+      `;
+    }
+
+    function escaparHtml(texto) {
+      const div = document.createElement('div');
+      div.textContent = texto;
+      return div.innerHTML;
+    }
+
+    function irA(opcion) {
+      window.location.href = '/cliente/' + clienteId + '/' + opcion;
+    }
+
+    cargarCliente();
+  </script>
+
+</body>
+</html>
