@@ -1,93 +1,133 @@
 // ============================================================
-//  BASE DE DATOS - SQLite
+//  BASE DE DATOS - PostgreSQL (Neon)
 // ============================================================
 //
 //  Qué hace:
-//   Crea (si no existe) el archivo data/contafacil.db con dos tablas:
+//   Se conecta a la base de datos PostgreSQL en Neon (usando la
+//   variable de entorno DATABASE_URL del archivo .env), crea las
+//   tablas si no existen, y expone una API similar a better-sqlite3
+//   (db.prepare(sql).get/.all/.run) pero ASÍNCRONA (con await),
+//   para minimizar los cambios necesarios en el resto del código.
 //
-//   contadores      -> los usuarios que TÚ vendes (login del sistema)
-//   clientes_sunat  -> los RUC que cada contador administra
-//                      (cada fila queda ligada a un contador_id)
+//   IMPORTANTE: a diferencia de la versión SQLite anterior, aquí
+//   TODAS las llamadas (.get, .all, .run) devuelven una Promise,
+//   así que en el código que las usa hace falta "await" delante.
 //
+//   Las consultas SQL existentes usaban "?" como marcador de
+//   parámetros (estilo SQLite). PostgreSQL usa "$1, $2, $3...".
+//   Para no tener que reescribir cada consulta a mano, esta capa
+//   traduce automáticamente los "?" a "$1,$2,..." antes de
+//   ejecutar la consulta.
 // ============================================================
 
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const RUTA_DB = path.join(__dirname, 'data', 'contafacil.db');
-
-const db = new Database(RUTA_DB);
-db.pragma('journal_mode = WAL');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS contadores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL,
-    usuario TEXT NOT NULL UNIQUE,
-    clave_hash TEXT NOT NULL,
-    activo INTEGER NOT NULL DEFAULT 1,
-    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
-    intentos_fallidos INTEGER NOT NULL DEFAULT 0,
-    bloqueado_hasta TEXT,
-    nivel_bloqueo INTEGER NOT NULL DEFAULT 0,
-    terminos_aceptados INTEGER NOT NULL DEFAULT 0,
-    terminos_aceptados_en TEXT,
-    terminos_version TEXT
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    'Falta DATABASE_URL en el archivo .env. Debe ser la cadena de conexión ' +
+    'de tu base de datos en Neon (postgresql://...).'
   );
-`);
-
-// Migración segura: si la tabla ya existía de antes (sin estas columnas),
-// las agregamos sin tocar los datos que ya hay. SQLite no tiene
-// "ADD COLUMN IF NOT EXISTS", así que revisamos primero cuáles faltan.
-const columnasExistentes = db.prepare(`PRAGMA table_info(contadores)`).all().map(c => c.name);
-
-if (!columnasExistentes.includes('intentos_fallidos')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN intentos_fallidos INTEGER NOT NULL DEFAULT 0`);
-}
-if (!columnasExistentes.includes('bloqueado_hasta')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN bloqueado_hasta TEXT`);
-}
-if (!columnasExistentes.includes('nivel_bloqueo')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN nivel_bloqueo INTEGER NOT NULL DEFAULT 0`);
-}
-if (!columnasExistentes.includes('terminos_aceptados')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN terminos_aceptados INTEGER NOT NULL DEFAULT 0`);
-}
-if (!columnasExistentes.includes('terminos_aceptados_en')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN terminos_aceptados_en TEXT`);
-}
-if (!columnasExistentes.includes('terminos_version')) {
-  db.exec(`ALTER TABLE contadores ADD COLUMN terminos_version TEXT`);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS clientes_sunat (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contador_id INTEGER NOT NULL,
-    nombre_cliente TEXT NOT NULL,
-    ruc TEXT NOT NULL,
-    usuario_sol TEXT NOT NULL,
-    clave_sol_cifrada TEXT NOT NULL,
-    creado_en TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (contador_id) REFERENCES contadores(id)
-  );
-`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // Neon exige SSL; esto lo acepta sin pedir certificados locales
+});
 
-// Tabla separada para rastrear el bloqueo del login de administrador
-// (no es una fila de "contadores", así que necesita su propio registro).
-db.exec(`
-  CREATE TABLE IF NOT EXISTS admin_seguridad (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    intentos_fallidos INTEGER NOT NULL DEFAULT 0,
-    bloqueado_hasta TEXT,
-    nivel_bloqueo INTEGER NOT NULL DEFAULT 0
-  );
-`);
+// Convierte una consulta con "?" (estilo SQLite) a "$1,$2,..." (estilo Postgres)
+function convertirPlaceholders(sql) {
+  let contador = 0;
+  return sql.replace(/\?/g, () => {
+    contador++;
+    return `$${contador}`;
+  });
+}
 
-// Nos asegura que siempre exista exactamente una fila (id=1) para leer/actualizar
-db.exec(`
-  INSERT OR IGNORE INTO admin_seguridad (id, intentos_fallidos, nivel_bloqueo)
-  VALUES (1, 0, 0);
-`);
+// Objeto que imita la API de better-sqlite3: db.prepare(sql).get/.all/.run(...params)
+function prepare(sqlOriginal) {
+  const sqlConvertido = convertirPlaceholders(sqlOriginal);
 
-module.exports = db;
+  return {
+    // Devuelve UNA fila (o undefined si no hay resultados) - como better-sqlite3 .get()
+    async get(...params) {
+      const resultado = await pool.query(sqlConvertido, params);
+      return resultado.rows[0];
+    },
+
+    // Devuelve TODAS las filas - como better-sqlite3 .all()
+    async all(...params) {
+      const resultado = await pool.query(sqlConvertido, params);
+      return resultado.rows;
+    },
+
+    // Para INSERT/UPDATE/DELETE - como better-sqlite3 .run()
+    // Postgres no devuelve "lastInsertRowid" de forma nativa como SQLite;
+    // para eso, las consultas INSERT deben agregar "RETURNING id" (ya
+    // ajustado en server.js donde se necesita ese valor).
+    async run(...params) {
+      const resultado = await pool.query(sqlConvertido, params);
+      return {
+        changes: resultado.rowCount,
+        lastInsertRowid: resultado.rows[0]?.id, // disponible solo si la consulta usa RETURNING id
+      };
+    },
+  };
+}
+
+// ── CREACIÓN DE TABLAS (equivalente a las de SQLite, sintaxis Postgres) ──
+async function inicializarTablas() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contadores (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      usuario TEXT NOT NULL UNIQUE,
+      clave_hash TEXT NOT NULL,
+      activo INTEGER NOT NULL DEFAULT 1,
+      creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+      intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+      bloqueado_hasta TIMESTAMP,
+      nivel_bloqueo INTEGER NOT NULL DEFAULT 0,
+      terminos_aceptados INTEGER NOT NULL DEFAULT 0,
+      terminos_aceptados_en TIMESTAMP,
+      terminos_version TEXT
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clientes_sunat (
+      id SERIAL PRIMARY KEY,
+      contador_id INTEGER NOT NULL REFERENCES contadores(id),
+      nombre_cliente TEXT NOT NULL,
+      ruc TEXT NOT NULL,
+      usuario_sol TEXT NOT NULL,
+      clave_sol_cifrada TEXT NOT NULL,
+      creado_en TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_seguridad (
+      id INTEGER PRIMARY KEY,
+      intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+      bloqueado_hasta TIMESTAMP,
+      nivel_bloqueo INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO admin_seguridad (id, intentos_fallidos, nivel_bloqueo)
+    VALUES (1, 0, 0)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+}
+
+// Ejecutamos la inicialización al cargar el módulo. Como esto es async y el
+// resto del código espera poder usar "prepare" de inmediato, exponemos una
+// promesa que server.js debe esperar antes de aceptar peticiones (ver
+// "listoParaUsar" más abajo).
+const listoParaUsar = inicializarTablas().catch((err) => {
+  console.error('❌ Error inicializando las tablas de la base de datos:', err);
+  process.exit(1);
+});
+
+module.exports = { prepare, listoParaUsar, pool };

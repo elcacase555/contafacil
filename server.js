@@ -10,7 +10,8 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const db = require('./db');
+const { prepare: prepararConsulta, listoParaUsar } = require('./db');
+const db = { prepare: prepararConsulta }; // alias para minimizar cambios: el resto del código sigue usando db.prepare(...)
 const { cifrar, descifrar } = require('./crypto-sol');
 const { elegirCarpeta } = require('./elegir-carpeta');
 const { generarRangoMeses } = require('./scripts-sunat/rango-meses');
@@ -125,7 +126,7 @@ app.get('/login', (req, res) => {
 app.post('/login', limitadorPorIP, async (req, res) => {
   const { usuario, clave } = req.body;
 
-  const contador = db.prepare(
+  const contador = await db.prepare(
     'SELECT * FROM contadores WHERE usuario = ? AND activo = 1'
   ).get(usuario);
 
@@ -144,14 +145,14 @@ app.post('/login', limitadorPorIP, async (req, res) => {
 
   const claveCorrecta = await bcrypt.compare(clave, contador.clave_hash);
 
-  const actualizarContador = (cambios) => {
+  const actualizarContador = async (cambios) => {
     const campos = Object.keys(cambios).map(c => `${c} = ?`).join(', ');
     const valores = Object.values(cambios);
-    db.prepare(`UPDATE contadores SET ${campos} WHERE id = ?`).run(...valores, contador.id);
+    await db.prepare(`UPDATE contadores SET ${campos} WHERE id = ?`).run(...valores, contador.id);
   };
 
   if (!claveCorrecta) {
-    const resultado = registrarFallo(contador, actualizarContador);
+    const resultado = await registrarFallo(contador, actualizarContador);
 
     if (resultado.bloqueadoAhora) {
       return res.status(429).json({
@@ -164,7 +165,7 @@ app.post('/login', limitadorPorIP, async (req, res) => {
   }
 
   // Login exitoso: se reinician los contadores de fallos y bloqueo
-  reiniciarPorExito(actualizarContador);
+  await reiniciarPorExito(actualizarContador);
 
   // Regeneramos el ID de sesión antes de asignar los datos del usuario.
   // Esto previene ataques de "fijación de sesión" (session fixation),
@@ -193,8 +194,8 @@ app.post('/logout', (req, res) => {
 const { VERSION_TERMINOS, TITULO: TITULO_TERMINOS, CONTENIDO_HTML: CONTENIDO_TERMINOS } = require('./contenido-terminos');
 
 // ── RUTA: datos del contador logueado (para mostrar su nombre en pantalla) ──
-app.get('/api/mi-sesion', requiereLogin, (req, res) => {
-  const contador = db.prepare('SELECT terminos_aceptados, terminos_version FROM contadores WHERE id = ?').get(req.session.contadorId);
+app.get('/api/mi-sesion', requiereLogin, async (req, res) => {
+  const contador = await db.prepare('SELECT terminos_aceptados, terminos_version FROM contadores WHERE id = ?').get(req.session.contadorId);
 
   res.json({
     contadorId: req.session.contadorId,
@@ -211,10 +212,10 @@ app.get('/api/terminos', requiereLogin, (req, res) => {
 });
 
 // ── RUTA: registrar que el contador aceptó los Términos y Condiciones ──
-app.post('/api/terminos/aceptar', requiereLogin, (req, res) => {
-  db.prepare(`
+app.post('/api/terminos/aceptar', requiereLogin, async (req, res) => {
+  await db.prepare(`
     UPDATE contadores
-    SET terminos_aceptados = 1, terminos_aceptados_en = datetime('now'), terminos_version = ?
+    SET terminos_aceptados = 1, terminos_aceptados_en = NOW(), terminos_version = ?
     WHERE id = ?
   `).run(VERSION_TERMINOS, req.session.contadorId);
 
@@ -234,8 +235,8 @@ app.get('/', requiereLogin, (req, res) => {
 });
 
 // ── RUTA: listar los clientes SUNAT del contador logueado ──────
-app.get('/api/clientes', requiereLogin, (req, res) => {
-  const clientes = db.prepare(`
+app.get('/api/clientes', requiereLogin, async (req, res) => {
+  const clientes = await db.prepare(`
     SELECT id, nombre_cliente, ruc, usuario_sol, creado_en
     FROM clientes_sunat
     WHERE contador_id = ?
@@ -248,7 +249,7 @@ app.get('/api/clientes', requiereLogin, (req, res) => {
 });
 
 // ── RUTA: agregar un cliente SUNAT nuevo, ligado al contador logueado ──
-app.post('/api/clientes', requiereLogin, (req, res) => {
+app.post('/api/clientes', requiereLogin, async (req, res) => {
   const { nombreCliente, ruc, usuarioSol, claveSol } = req.body;
 
   if (!nombreCliente || !ruc || !usuarioSol || !claveSol) {
@@ -276,17 +277,18 @@ app.post('/api/clientes', requiereLogin, (req, res) => {
 
   const claveCifrada = cifrar(claveSol);
 
-  const resultado = db.prepare(`
+  const resultado = await db.prepare(`
     INSERT INTO clientes_sunat (contador_id, nombre_cliente, ruc, usuario_sol, clave_sol_cifrada)
     VALUES (?, ?, ?, ?, ?)
+    RETURNING id
   `).run(req.session.contadorId, nombreLimpio, rucLimpio, usuarioLimpio, claveCifrada);
 
   res.json({ ok: true, id: resultado.lastInsertRowid });
 });
 
 // ── RUTA: eliminar un cliente SUNAT (solo si pertenece al contador logueado) ──
-app.delete('/api/clientes/:id', requiereLogin, (req, res) => {
-  const resultado = db.prepare(`
+app.delete('/api/clientes/:id', requiereLogin, async (req, res) => {
+  const resultado = await db.prepare(`
     DELETE FROM clientes_sunat WHERE id = ? AND contador_id = ?
   `).run(req.params.id, req.session.contadorId);
 
@@ -308,8 +310,8 @@ app.get('/cliente/:id/:opcion', requiereLogin, (req, res) => {
 });
 
 // ── RUTA: obtener los datos de un cliente (sin la clave SOL) ──
-app.get('/api/clientes/:id', requiereLogin, (req, res) => {
-  const cliente = db.prepare(`
+app.get('/api/clientes/:id', requiereLogin, async (req, res) => {
+  const cliente = await db.prepare(`
     SELECT id, nombre_cliente, ruc, usuario_sol
     FROM clientes_sunat
     WHERE id = ? AND contador_id = ?
@@ -332,7 +334,6 @@ app.post('/api/elegir-carpeta', requiereLogin, async (req, res) => {
   }
 });
 
-// ── RUTA: conexión de progreso en vivo (Server-Sent Events) ──
 // ── RUTA: conexión de progreso en vivo (Server-Sent Events) ──
 // Protegida con un límite de tiempo de vida máximo, para que una conexión
 // olvidada/abusiva no quede consumiendo recursos del servidor para siempre.
@@ -392,7 +393,7 @@ app.post('/api/descargar', requiereLogin, limitadorDescargas, async (req, res) =
     return res.status(400).json({ ok: false, mensaje: 'Cliente no válido.' });
   }
 
-  const cliente = db.prepare(`
+  const cliente = await db.prepare(`
     SELECT * FROM clientes_sunat WHERE id = ? AND contador_id = ?
   `).get(clienteIdNum, req.session.contadorId);
 
@@ -574,7 +575,7 @@ app.get('/admin/login', (req, res) => {
 });
 
 // ── RUTA: procesar el login de administrador ──────────────
-app.post('/admin/login', limitadorPorIP, (req, res) => {
+app.post('/admin/login', limitadorPorIP, async (req, res) => {
   const { clave } = req.body;
   const claveAdmin = process.env.CLAVE_ADMIN;
 
@@ -582,7 +583,7 @@ app.post('/admin/login', limitadorPorIP, (req, res) => {
     return res.status(500).json({ ok: false, mensaje: 'No se configuró CLAVE_ADMIN en el archivo .env.' });
   }
 
-  const estadoSeguridad = db.prepare('SELECT * FROM admin_seguridad WHERE id = 1').get();
+  const estadoSeguridad = await db.prepare('SELECT * FROM admin_seguridad WHERE id = 1').get();
 
   const estadoBloqueo = verificarBloqueo(estadoSeguridad);
   if (estadoBloqueo.bloqueado) {
@@ -592,14 +593,14 @@ app.post('/admin/login', limitadorPorIP, (req, res) => {
     });
   }
 
-  const actualizarAdmin = (cambios) => {
+  const actualizarAdmin = async (cambios) => {
     const campos = Object.keys(cambios).map(c => `${c} = ?`).join(', ');
     const valores = Object.values(cambios);
-    db.prepare(`UPDATE admin_seguridad SET ${campos} WHERE id = 1`).run(...valores);
+    await db.prepare(`UPDATE admin_seguridad SET ${campos} WHERE id = 1`).run(...valores);
   };
 
   if (clave !== claveAdmin) {
-    const resultado = registrarFallo(estadoSeguridad, actualizarAdmin);
+    const resultado = await registrarFallo(estadoSeguridad, actualizarAdmin);
 
     if (resultado.bloqueadoAhora) {
       return res.status(429).json({
@@ -611,7 +612,7 @@ app.post('/admin/login', limitadorPorIP, (req, res) => {
     return res.status(401).json({ ok: false, mensaje: 'Contraseña de administrador incorrecta.' });
   }
 
-  reiniciarPorExito(actualizarAdmin);
+  await reiniciarPorExito(actualizarAdmin);
 
   // Misma protección anti session-fixation que en el login de contadores
   req.session.regenerate((err) => {
@@ -637,8 +638,8 @@ app.get('/admin', requiereAdmin, (req, res) => {
 });
 
 // ── RUTA: listar todos los contadores, con su cantidad de clientes ──
-app.get('/api/admin/contadores', requiereAdmin, (req, res) => {
-  const contadores = db.prepare(`
+app.get('/api/admin/contadores', requiereAdmin, async (req, res) => {
+  const contadores = await db.prepare(`
     SELECT
       c.id, c.nombre, c.usuario, c.activo, c.creado_en,
       c.terminos_aceptados, c.terminos_aceptados_en,
@@ -662,26 +663,27 @@ app.post('/api/admin/contadores', requiereAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: 'La contraseña debe tener al menos 8 caracteres.' });
   }
 
-  const yaExiste = db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
+  const yaExiste = await db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
   if (yaExiste) {
     return res.status(400).json({ ok: false, mensaje: `Ya existe un contador con el usuario "${usuario}".` });
   }
 
   const claveHash = await bcrypt.hash(clave, 10);
 
-  const resultado = db.prepare(`
+  const resultado = await db.prepare(`
     INSERT INTO contadores (nombre, usuario, clave_hash)
     VALUES (?, ?, ?)
+    RETURNING id
   `).run(nombre.trim(), usuario.trim(), claveHash);
 
   res.json({ ok: true, id: resultado.lastInsertRowid });
 });
 
 // ── RUTA: activar / desactivar un contador (sin borrarlo) ──
-app.patch('/api/admin/contadores/:id/activo', requiereAdmin, (req, res) => {
+app.patch('/api/admin/contadores/:id/activo', requiereAdmin, async (req, res) => {
   const { activo } = req.body; // true o false
 
-  const resultado = db.prepare(`
+  const resultado = await db.prepare(`
     UPDATE contadores SET activo = ? WHERE id = ?
   `).run(activo ? 1 : 0, req.params.id);
 
@@ -702,7 +704,7 @@ app.patch('/api/admin/contadores/:id/clave', requiereAdmin, async (req, res) => 
 
   const claveHash = await bcrypt.hash(clave, 10);
 
-  const resultado = db.prepare(`
+  const resultado = await db.prepare(`
     UPDATE contadores SET clave_hash = ? WHERE id = ?
   `).run(claveHash, req.params.id);
 
@@ -714,11 +716,11 @@ app.patch('/api/admin/contadores/:id/clave', requiereAdmin, async (req, res) => 
 });
 
 // ── RUTA: eliminar un contador y todos sus clientes SUNAT ──
-app.delete('/api/admin/contadores/:id', requiereAdmin, (req, res) => {
+app.delete('/api/admin/contadores/:id', requiereAdmin, async (req, res) => {
   // Primero borramos sus clientes SUNAT (por la relación de llave foránea),
   // luego al contador mismo.
-  db.prepare('DELETE FROM clientes_sunat WHERE contador_id = ?').run(req.params.id);
-  const resultado = db.prepare('DELETE FROM contadores WHERE id = ?').run(req.params.id);
+  await db.prepare('DELETE FROM clientes_sunat WHERE contador_id = ?').run(req.params.id);
+  const resultado = await db.prepare('DELETE FROM contadores WHERE id = ?').run(req.params.id);
 
   if (resultado.changes === 0) {
     return res.status(404).json({ ok: false, mensaje: 'Contador no encontrado.' });
@@ -737,6 +739,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ ok: false, mensaje: 'Ocurrió un error inesperado. Intenta de nuevo.' });
 });
 
-app.listen(PUERTO, () => {
-  console.log(`\n🚀 Servidor corriendo en http://localhost:${PUERTO}\n`);
+// Esperamos a que la base de datos termine de inicializar (tablas creadas
+// en Neon) antes de empezar a aceptar peticiones - evita que llegue una
+// petición antes de que las tablas existan.
+listoParaUsar.then(() => {
+  app.listen(PUERTO, () => {
+    console.log(`\n🚀 Servidor corriendo en http://localhost:${PUERTO}\n`);
+  });
 });

@@ -33,7 +33,10 @@ function verificarBloqueo(fila) {
     return { bloqueado: false, minutosRestantes: 0 };
   }
 
-  const hasta = new Date(fila.bloqueado_hasta + 'Z'); // 'Z' porque SQLite guarda UTC
+  // Postgres devuelve bloqueado_hasta como un objeto Date real (a diferencia
+  // de SQLite, que lo devolvía como texto). new Date() acepta ambos casos
+  // sin problema, así que esto funciona igual venga de uno u otro motor.
+  const hasta = new Date(fila.bloqueado_hasta);
   const ahora = new Date();
 
   if (ahora < hasta) {
@@ -46,18 +49,18 @@ function verificarBloqueo(fila) {
 
 // Registra un fallo. Si llega al umbral, activa el bloqueo del nivel
 // correspondiente y sube el nivel para la próxima vez.
-// `actualizar` es una función que recibe (cambios) y los guarda en la DB
-// (para no atar este módulo a una tabla específica - lo usan tanto
+// `actualizar` es una función ASYNC que recibe (cambios) y los guarda en
+// la DB (para no atar este módulo a una tabla específica - lo usan tanto
 // contadores como el admin).
-function registrarFallo(filaActual, actualizar) {
+async function registrarFallo(filaActual, actualizar) {
   const nuevosIntentos = (filaActual.intentos_fallidos || 0) + 1;
 
   if (nuevosIntentos >= FALLOS_PARA_BLOQUEAR) {
     const nuevoNivel = (filaActual.nivel_bloqueo || 0) + 1;
     const minutos = minutosParaNivel(nuevoNivel);
-    const bloqueadoHasta = new Date(Date.now() + minutos * 60000).toISOString().replace('Z', '');
+    const bloqueadoHasta = new Date(Date.now() + minutos * 60000);
 
-    actualizar({
+    await actualizar({
       intentos_fallidos: 0, // se reinicia el conteo, el bloqueo ya quedó activado
       nivel_bloqueo: nuevoNivel,
       bloqueado_hasta: bloqueadoHasta,
@@ -66,13 +69,13 @@ function registrarFallo(filaActual, actualizar) {
     return { bloqueadoAhora: true, minutos };
   }
 
-  actualizar({ intentos_fallidos: nuevosIntentos });
+  await actualizar({ intentos_fallidos: nuevosIntentos });
   return { bloqueadoAhora: false, intentosRestantes: FALLOS_PARA_BLOQUEAR - nuevosIntentos };
 }
 
 // Login exitoso: reinicia todo a cero (intentos, nivel, bloqueo)
-function reiniciarPorExito(actualizar) {
-  actualizar({ intentos_fallidos: 0, nivel_bloqueo: 0, bloqueado_hasta: null });
+async function reiniciarPorExito(actualizar) {
+  await actualizar({ intentos_fallidos: 0, nivel_bloqueo: 0, bloqueado_hasta: null });
 }
 
 module.exports = { verificarBloqueo, registrarFallo, reiniciarPorExito };

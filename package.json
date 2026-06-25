@@ -10,6 +10,7 @@
   "dependencies": {
     "adm-zip": "^0.5.10",
     "bcrypt": "^5.1.1",
+    "pg": "^8.13.0",
     "better-sqlite3": "^11.3.0",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
