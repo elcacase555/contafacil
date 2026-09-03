@@ -2,20 +2,11 @@
 //  AGREGAR UN CONTADOR NUEVO (solo lo ejecutas tú, el dueño del sistema)
 //  Uso: node scripts/crear-usuario.js
 // ============================================================
-//
-//  Qué hace:
-//   Cada vez que lo corres, agrega UN contador nuevo a la base
-//   de datos, con su propio usuario y contraseña. No reemplaza
-//   a los anteriores - se van sumando.
-//
-//   Úsalo cada vez que vendas el sistema a un contador nuevo.
-// ============================================================
 
 require('dotenv').config();
 const bcrypt = require('bcrypt');
 const readline = require('readline');
-const { prepare, listoParaUsar, pool } = require('../db');
-const db = { prepare };
+const db = require('../db');
 
 function preguntar(texto) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -28,8 +19,6 @@ function preguntar(texto) {
 }
 
 async function main() {
-  await listoParaUsar; // espera a que las tablas existan en Neon antes de continuar
-
   console.log('\n=== Agregar nuevo contador al sistema ===\n');
 
   const nombre = await preguntar('Nombre del contador (ej: Juan Pérez): ');
@@ -38,20 +27,18 @@ async function main() {
 
   if (!nombre || !usuario || !clave) {
     console.log('\n❌ Todos los campos son obligatorios.\n');
-    await pool.end();
     return;
   }
 
-  const yaExiste = await db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
+  const yaExiste = db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
   if (yaExiste) {
     console.log(`\n❌ Ya existe un contador con el usuario "${usuario}". Elige otro usuario.\n`);
-    await pool.end();
     return;
   }
 
   const claveHash = await bcrypt.hash(clave, 10);
 
-  await db.prepare(`
+  db.prepare(`
     INSERT INTO contadores (nombre, usuario, clave_hash)
     VALUES (?, ?, ?)
   `).run(nombre, usuario, claveHash);
@@ -61,8 +48,6 @@ async function main() {
   console.log(`   Usuario:    ${usuario}`);
   console.log(`   Contraseña: ${clave}`);
   console.log('\n   (la contraseña real no queda guardada en texto plano en ningún lado)\n');
-
-  await pool.end(); // cierra la conexión a la base de datos para que el script termine
 }
 
 main();

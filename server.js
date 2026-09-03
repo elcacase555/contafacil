@@ -10,8 +10,7 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { prepare: prepararConsulta, listoParaUsar } = require('./db');
-const db = { prepare: prepararConsulta }; // alias para minimizar cambios: el resto del código sigue usando db.prepare(...)
+const db = require('./db');
 const { cifrar, descifrar } = require('./crypto-sol');
 const { elegirCarpeta } = require('./elegir-carpeta');
 const { generarRangoMeses } = require('./scripts-sunat/rango-meses');
@@ -126,7 +125,7 @@ app.get('/login', (req, res) => {
 app.post('/login', limitadorPorIP, async (req, res) => {
   const { usuario, clave } = req.body;
 
-  const contador = await db.prepare(
+  const contador = db.prepare(
     'SELECT * FROM contadores WHERE usuario = ? AND activo = 1'
   ).get(usuario);
 
@@ -145,14 +144,14 @@ app.post('/login', limitadorPorIP, async (req, res) => {
 
   const claveCorrecta = await bcrypt.compare(clave, contador.clave_hash);
 
-  const actualizarContador = async (cambios) => {
+  const actualizarContador = (cambios) => {
     const campos = Object.keys(cambios).map(c => `${c} = ?`).join(', ');
     const valores = Object.values(cambios);
-    await db.prepare(`UPDATE contadores SET ${campos} WHERE id = ?`).run(...valores, contador.id);
+    db.prepare(`UPDATE contadores SET ${campos} WHERE id = ?`).run(...valores, contador.id);
   };
 
   if (!claveCorrecta) {
-    const resultado = await registrarFallo(contador, actualizarContador);
+    const resultado = registrarFallo(contador, actualizarContador);
 
     if (resultado.bloqueadoAhora) {
       return res.status(429).json({
@@ -165,7 +164,7 @@ app.post('/login', limitadorPorIP, async (req, res) => {
   }
 
   // Login exitoso: se reinician los contadores de fallos y bloqueo
-  await reiniciarPorExito(actualizarContador);
+  reiniciarPorExito(actualizarContador);
 
   // Regeneramos el ID de sesión antes de asignar los datos del usuario.
   // Esto previene ataques de "fijación de sesión" (session fixation),
@@ -195,7 +194,7 @@ const { VERSION_TERMINOS, TITULO: TITULO_TERMINOS, CONTENIDO_HTML: CONTENIDO_TER
 
 // ── RUTA: datos del contador logueado (para mostrar su nombre en pantalla) ──
 app.get('/api/mi-sesion', requiereLogin, async (req, res) => {
-  const contador = await db.prepare('SELECT terminos_aceptados, terminos_version FROM contadores WHERE id = ?').get(req.session.contadorId);
+  const contador = db.prepare('SELECT terminos_aceptados, terminos_version FROM contadores WHERE id = ?').get(req.session.contadorId);
 
   res.json({
     contadorId: req.session.contadorId,
@@ -213,9 +212,9 @@ app.get('/api/terminos', requiereLogin, (req, res) => {
 
 // ── RUTA: registrar que el contador aceptó los Términos y Condiciones ──
 app.post('/api/terminos/aceptar', requiereLogin, async (req, res) => {
-  await db.prepare(`
+  db.prepare(`
     UPDATE contadores
-    SET terminos_aceptados = 1, terminos_aceptados_en = NOW(), terminos_version = ?
+    SET terminos_aceptados = 1, terminos_aceptados_en = datetime('now'), terminos_version = ?
     WHERE id = ?
   `).run(VERSION_TERMINOS, req.session.contadorId);
 
@@ -236,7 +235,7 @@ app.get('/', requiereLogin, (req, res) => {
 
 // ── RUTA: listar los clientes SUNAT del contador logueado ──────
 app.get('/api/clientes', requiereLogin, async (req, res) => {
-  const clientes = await db.prepare(`
+  const clientes = db.prepare(`
     SELECT id, nombre_cliente, ruc, usuario_sol, creado_en
     FROM clientes_sunat
     WHERE contador_id = ?
@@ -277,10 +276,9 @@ app.post('/api/clientes', requiereLogin, async (req, res) => {
 
   const claveCifrada = cifrar(claveSol);
 
-  const resultado = await db.prepare(`
+  const resultado = db.prepare(`
     INSERT INTO clientes_sunat (contador_id, nombre_cliente, ruc, usuario_sol, clave_sol_cifrada)
     VALUES (?, ?, ?, ?, ?)
-    RETURNING id
   `).run(req.session.contadorId, nombreLimpio, rucLimpio, usuarioLimpio, claveCifrada);
 
   res.json({ ok: true, id: resultado.lastInsertRowid });
@@ -288,7 +286,7 @@ app.post('/api/clientes', requiereLogin, async (req, res) => {
 
 // ── RUTA: eliminar un cliente SUNAT (solo si pertenece al contador logueado) ──
 app.delete('/api/clientes/:id', requiereLogin, async (req, res) => {
-  const resultado = await db.prepare(`
+  const resultado = db.prepare(`
     DELETE FROM clientes_sunat WHERE id = ? AND contador_id = ?
   `).run(req.params.id, req.session.contadorId);
 
@@ -311,7 +309,7 @@ app.get('/cliente/:id/:opcion', requiereLogin, (req, res) => {
 
 // ── RUTA: obtener los datos de un cliente (sin la clave SOL) ──
 app.get('/api/clientes/:id', requiereLogin, async (req, res) => {
-  const cliente = await db.prepare(`
+  const cliente = db.prepare(`
     SELECT id, nombre_cliente, ruc, usuario_sol
     FROM clientes_sunat
     WHERE id = ? AND contador_id = ?
@@ -393,7 +391,7 @@ app.post('/api/descargar', requiereLogin, limitadorDescargas, async (req, res) =
     return res.status(400).json({ ok: false, mensaje: 'Cliente no válido.' });
   }
 
-  const cliente = await db.prepare(`
+  const cliente = db.prepare(`
     SELECT * FROM clientes_sunat WHERE id = ? AND contador_id = ?
   `).get(clienteIdNum, req.session.contadorId);
 
@@ -583,7 +581,7 @@ app.post('/admin/login', limitadorPorIP, async (req, res) => {
     return res.status(500).json({ ok: false, mensaje: 'No se configuró CLAVE_ADMIN en el archivo .env.' });
   }
 
-  const estadoSeguridad = await db.prepare('SELECT * FROM admin_seguridad WHERE id = 1').get();
+  const estadoSeguridad = db.prepare('SELECT * FROM admin_seguridad WHERE id = 1').get();
 
   const estadoBloqueo = verificarBloqueo(estadoSeguridad);
   if (estadoBloqueo.bloqueado) {
@@ -593,14 +591,14 @@ app.post('/admin/login', limitadorPorIP, async (req, res) => {
     });
   }
 
-  const actualizarAdmin = async (cambios) => {
+  const actualizarAdmin = (cambios) => {
     const campos = Object.keys(cambios).map(c => `${c} = ?`).join(', ');
     const valores = Object.values(cambios);
-    await db.prepare(`UPDATE admin_seguridad SET ${campos} WHERE id = 1`).run(...valores);
+    db.prepare(`UPDATE admin_seguridad SET ${campos} WHERE id = 1`).run(...valores);
   };
 
   if (clave !== claveAdmin) {
-    const resultado = await registrarFallo(estadoSeguridad, actualizarAdmin);
+    const resultado = registrarFallo(estadoSeguridad, actualizarAdmin);
 
     if (resultado.bloqueadoAhora) {
       return res.status(429).json({
@@ -612,7 +610,7 @@ app.post('/admin/login', limitadorPorIP, async (req, res) => {
     return res.status(401).json({ ok: false, mensaje: 'Contraseña de administrador incorrecta.' });
   }
 
-  await reiniciarPorExito(actualizarAdmin);
+  reiniciarPorExito(actualizarAdmin);
 
   // Misma protección anti session-fixation que en el login de contadores
   req.session.regenerate((err) => {
@@ -639,7 +637,7 @@ app.get('/admin', requiereAdmin, (req, res) => {
 
 // ── RUTA: listar todos los contadores, con su cantidad de clientes ──
 app.get('/api/admin/contadores', requiereAdmin, async (req, res) => {
-  const contadores = await db.prepare(`
+  const contadores = db.prepare(`
     SELECT
       c.id, c.nombre, c.usuario, c.activo, c.creado_en,
       c.terminos_aceptados, c.terminos_aceptados_en,
@@ -663,17 +661,16 @@ app.post('/api/admin/contadores', requiereAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: 'La contraseña debe tener al menos 8 caracteres.' });
   }
 
-  const yaExiste = await db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
+  const yaExiste = db.prepare('SELECT id FROM contadores WHERE usuario = ?').get(usuario);
   if (yaExiste) {
     return res.status(400).json({ ok: false, mensaje: `Ya existe un contador con el usuario "${usuario}".` });
   }
 
   const claveHash = await bcrypt.hash(clave, 10);
 
-  const resultado = await db.prepare(`
+  const resultado = db.prepare(`
     INSERT INTO contadores (nombre, usuario, clave_hash)
     VALUES (?, ?, ?)
-    RETURNING id
   `).run(nombre.trim(), usuario.trim(), claveHash);
 
   res.json({ ok: true, id: resultado.lastInsertRowid });
@@ -683,7 +680,7 @@ app.post('/api/admin/contadores', requiereAdmin, async (req, res) => {
 app.patch('/api/admin/contadores/:id/activo', requiereAdmin, async (req, res) => {
   const { activo } = req.body; // true o false
 
-  const resultado = await db.prepare(`
+  const resultado = db.prepare(`
     UPDATE contadores SET activo = ? WHERE id = ?
   `).run(activo ? 1 : 0, req.params.id);
 
@@ -704,7 +701,7 @@ app.patch('/api/admin/contadores/:id/clave', requiereAdmin, async (req, res) => 
 
   const claveHash = await bcrypt.hash(clave, 10);
 
-  const resultado = await db.prepare(`
+  const resultado = db.prepare(`
     UPDATE contadores SET clave_hash = ? WHERE id = ?
   `).run(claveHash, req.params.id);
 
@@ -719,8 +716,8 @@ app.patch('/api/admin/contadores/:id/clave', requiereAdmin, async (req, res) => 
 app.delete('/api/admin/contadores/:id', requiereAdmin, async (req, res) => {
   // Primero borramos sus clientes SUNAT (por la relación de llave foránea),
   // luego al contador mismo.
-  await db.prepare('DELETE FROM clientes_sunat WHERE contador_id = ?').run(req.params.id);
-  const resultado = await db.prepare('DELETE FROM contadores WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM clientes_sunat WHERE contador_id = ?').run(req.params.id);
+  const resultado = db.prepare('DELETE FROM contadores WHERE id = ?').run(req.params.id);
 
   if (resultado.changes === 0) {
     return res.status(404).json({ ok: false, mensaje: 'Contador no encontrado.' });
@@ -739,11 +736,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ ok: false, mensaje: 'Ocurrió un error inesperado. Intenta de nuevo.' });
 });
 
-// Esperamos a que la base de datos termine de inicializar (tablas creadas
-// en Neon) antes de empezar a aceptar peticiones - evita que llegue una
-// petición antes de que las tablas existan.
-listoParaUsar.then(() => {
-  app.listen(PUERTO, () => {
-    console.log(`\n🚀 Servidor corriendo en http://localhost:${PUERTO}\n`);
-  });
+app.listen(PUERTO, () => {
+  console.log(`\n🚀 Servidor corriendo en http://localhost:${PUERTO}\n`);
 });
