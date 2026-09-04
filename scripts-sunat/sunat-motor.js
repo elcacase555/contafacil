@@ -439,6 +439,8 @@ async function crearExcel(datos, rutaExcel) {
     ]],
   ];
 
+  // Formato Contabilidad (estilo Excel Accounting) para montos en PEN
+  const FMT_CONTABILIDAD = '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)';
   const montos = new Set(['Sub Total (S/)', 'IGV 18% (S/)', 'Importe Total (S/)', 'Monto Detracción (S/)', 'Neto a Pagar (S/)']);
   const porcentajes = new Set(['% Detracción']);
 
@@ -468,7 +470,7 @@ async function crearExcel(datos, rutaExcel) {
       cv.alignment = { wrapText: true, vertical: 'top' };
       cv.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
 
-      if (montos.has(label) && typeof valor === 'number') cv.numFmt = '#,##0.00';
+      if (montos.has(label) && typeof valor === 'number') cv.numFmt = FMT_CONTABILIDAD;
       if (porcentajes.has(label) && typeof valor === 'number') cv.numFmt = '0.00%';
 
       ws.getRow(fila).height = label === 'Descripción' ? 45 : 18;
