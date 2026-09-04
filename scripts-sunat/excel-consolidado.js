@@ -3,11 +3,10 @@
 // ============================================================
 //
 //  Genera un libro listo para contadores (Perú / PEN):
-//   - Hoja "Datos": tabla Excel con números tipados y formato contabilidad
-//   - Hoja "Tabla dinámica (precalculada)": matriz Mes × Tipo (emitida/recibida
-//     y FE/NC/ND) calculada en Node (ExcelJS 4.4 no crea PivotTables nativas)
-//   - Hoja "Dashboard": KPIs, desgloses y tipografía profesional
-//   - Hoja "Cómo crear tabla dinámica": guía corta para pivot nativo en Excel
+//   - Hoja "Datos": tabla Excel TablaDatos + formato Contabilidad S/
+//   - Hoja "Tabla dinámica": matrices Mes × Tipo con fórmulas SUMIFS/COUNTIFS
+//   - Hoja "Dashboard": KPIs y desgloses con fórmulas vinculadas a TablaDatos
+//   - Hoja "Tips": tip breve (opcional)
 //
 // ============================================================
 
@@ -16,8 +15,8 @@ const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 const ExcelJS = require('exceljs');
 
-// Formato contabilidad (estilo Excel Accounting, compatible PEN/soles)
-const FMT_CONTABILIDAD = '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)';
+// Formato Contabilidad Excel con símbolo S/ (Accounting-style)
+const FMT_CONTABILIDAD = '_("S/"* #,##0.00_);_("S/"* (#,##0.00);_("S/"* "-"??_);_(@_)';
 const FMT_PORCENTAJE = '0.00%';
 const FMT_FECHA = 'dd/mm/yyyy';
 
@@ -175,6 +174,21 @@ function estiloNumero(celda, valor) {
   aplicarBordeFino(celda);
 }
 
+function estiloMontoFormula(celda, formula) {
+  celda.value = { formula };
+  celda.numFmt = FMT_CONTABILIDAD;
+  celda.font = { name: 'Calibri', size: 10 };
+  celda.alignment = { horizontal: 'right' };
+  aplicarBordeFino(celda);
+}
+
+function estiloNumeroFormula(celda, formula) {
+  celda.value = { formula };
+  celda.font = { name: 'Calibri', size: 10 };
+  celda.alignment = { horizontal: 'center' };
+  aplicarBordeFino(celda);
+}
+
 function estiloTexto(celda, valor) {
   celda.value = valor == null ? '' : valor;
   celda.font = { name: 'Calibri', size: 10 };
@@ -278,42 +292,36 @@ function crearHojaDatos(wb, facturas) {
   ws.autoFilter = undefined; // ya viene con filterButton de la tabla
 }
 
-// ── HOJA 2: Tabla dinámica precalculada (Mes × Tipo Doc / Sentido) ──
+// ── HOJA 2: Tabla dinámica por fórmulas (referencias a TablaDatos) ──
 function crearHojaTablaDinamica(wb, facturas) {
-  const ws = wb.addWorksheet('Tabla dinámica (precalculada)');
+  const ws = wb.addWorksheet('Tabla dinámica');
   ws.getColumn(1).width = 22;
 
   let fila = 1;
   ws.mergeCells(fila, 1, fila, 8);
-  estiloTituloSeccion(ws.getCell(fila, 1), 'TABLA DINÁMICA (PRECALCULADA) — se regenera al volver a descargar');
+  estiloTituloSeccion(ws.getCell(fila, 1), 'TABLA DINÁMICA — valores con fórmulas vinculadas a Datos (TablaDatos)');
   ws.getRow(fila).height = 24;
   fila += 2;
 
   ws.mergeCells(fila, 1, fila, 8);
   const nota = ws.getCell(fila, 1);
-  nota.value = 'Nota: ExcelJS no crea PivotTables nativas de Excel. Esta hoja es una matriz agregada en Node (Mes × Tipo). Para una pivot real: ve a Datos → Insertar → Tabla dinámica.';
+  nota.value = 'Los encabezados (meses/tipos) se listan al generar el archivo; cada celda de importe/cantidad es una fórmula SUMIFS/COUNTIFS sobre TablaDatos. Si editas Datos en Excel, estos totales se recalculan.';
   nota.font = { italic: true, size: 9, color: { argb: 'FF666666' }, name: 'Calibri' };
   nota.alignment = { wrapText: true };
   ws.getRow(fila).height = 32;
   fila += 2;
 
-  // --- Matriz 1: Mes × Sentido (Emitida/Recibida) con Importe Total ---
+  const sentidos = [...new Set(facturas.map(f => f.tipo))].sort();
+  const mesesOrden = [...new Set(facturas.map(f => f.mes))];
+  const tiposDoc = ['FE', 'NC', 'ND'].filter(td => facturas.some(f => f.tipoDoc === td));
+
+  // --- Matriz 1: Mes × Sentido (Importe Total) ---
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Importe Total por Mes × Sentido (Emitida / Recibida)');
   ws.getRow(fila).height = 22;
   fila += 1;
 
-  const sentidos = [...new Set(facturas.map(f => f.tipo))].sort();
-  const mesesOrden = [...new Set(facturas.map(f => f.mes))];
-
-  const matrixSentido = {};
-  for (const f of facturas) {
-    if (!matrixSentido[f.mes]) matrixSentido[f.mes] = {};
-    if (!matrixSentido[f.mes][f.tipo]) matrixSentido[f.mes][f.tipo] = { total: 0, cantidad: 0 };
-    matrixSentido[f.mes][f.tipo].total += f.total;
-    matrixSentido[f.mes][f.tipo].cantidad += 1;
-  }
-
+  const headerSentido = fila;
   estiloEncabezado(ws.getCell(fila, 1), 'Mes');
   sentidos.forEach((s, i) => {
     ws.getColumn(i + 2).width = 16;
@@ -323,44 +331,40 @@ function crearHojaTablaDinamica(wb, facturas) {
   ws.getColumn(sentidos.length + 2).width = 16;
   fila++;
 
-  const totalesColSentido = {};
-  sentidos.forEach(s => { totalesColSentido[s] = 0; });
-  let granTotalSentido = 0;
-
+  const primeraFilaSentido = fila;
   for (const mes of mesesOrden) {
     estiloTexto(ws.getCell(fila, 1), mes);
-    let filaTotal = 0;
     sentidos.forEach((s, i) => {
-      const v = (matrixSentido[mes] && matrixSentido[mes][s]) ? matrixSentido[mes][s].total : 0;
-      estiloMonto(ws.getCell(fila, i + 2), v);
-      totalesColSentido[s] += v;
-      filaTotal += v;
+      const colLetter = ws.getCell(headerSentido, i + 2).address.replace(/\d+/, '');
+      const formula = `SUMIFS(TablaDatos[Importe Total],TablaDatos[Mes],A${fila},TablaDatos[Tipo],${colLetter}$${headerSentido})`;
+      estiloMontoFormula(ws.getCell(fila, i + 2), formula);
     });
-    estiloMonto(ws.getCell(fila, sentidos.length + 2), filaTotal);
-    granTotalSentido += filaTotal;
+    const colInicio = ws.getCell(fila, 2).address;
+    const colFin = ws.getCell(fila, sentidos.length + 1).address;
+    estiloMontoFormula(ws.getCell(fila, sentidos.length + 2), `SUM(${colInicio}:${colFin})`);
     fila++;
   }
+  const ultimaFilaSentido = fila - 1;
 
   estiloTexto(ws.getCell(fila, 1), 'TOTAL');
   ws.getCell(fila, 1).font = { bold: true, name: 'Calibri', size: 10 };
-  sentidos.forEach((s, i) => estiloMonto(ws.getCell(fila, i + 2), totalesColSentido[s]));
-  estiloMonto(ws.getCell(fila, sentidos.length + 2), granTotalSentido);
+  sentidos.forEach((s, i) => {
+    const colLetter = ws.getCell(headerSentido, i + 2).address.replace(/\d+/, '');
+    estiloMontoFormula(ws.getCell(fila, i + 2), `SUM(${colLetter}${primeraFilaSentido}:${colLetter}${ultimaFilaSentido})`);
+  });
+  {
+    const colLetter = ws.getCell(headerSentido, sentidos.length + 2).address.replace(/\d+/, '');
+    estiloMontoFormula(ws.getCell(fila, sentidos.length + 2), `SUM(${colLetter}${primeraFilaSentido}:${colLetter}${ultimaFilaSentido})`);
+  }
   fila += 3;
 
-  // --- Matriz 2: Mes × Tipo Doc (FE/NC/ND) ---
+  // --- Matriz 2: Mes × Tipo Doc ---
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Importe Total por Mes × Tipo Doc (FE / NC / ND)');
   ws.getRow(fila).height = 22;
   fila += 1;
 
-  const tiposDoc = ['FE', 'NC', 'ND'].filter(td => facturas.some(f => f.tipoDoc === td));
-  const matrixDoc = {};
-  for (const f of facturas) {
-    if (!matrixDoc[f.mes]) matrixDoc[f.mes] = {};
-    if (!matrixDoc[f.mes][f.tipoDoc]) matrixDoc[f.mes][f.tipoDoc] = 0;
-    matrixDoc[f.mes][f.tipoDoc] += f.total;
-  }
-
+  const headerDoc = fila;
   estiloEncabezado(ws.getCell(fila, 1), 'Mes');
   tiposDoc.forEach((td, i) => {
     ws.getColumn(i + 2).width = Math.max(ws.getColumn(i + 2).width || 12, 14);
@@ -369,36 +373,40 @@ function crearHojaTablaDinamica(wb, facturas) {
   estiloEncabezado(ws.getCell(fila, tiposDoc.length + 2), 'Total');
   fila++;
 
-  const totalesColDoc = {};
-  tiposDoc.forEach(td => { totalesColDoc[td] = 0; });
-  let granTotalDoc = 0;
-
+  const primeraFilaDoc = fila;
   for (const mes of mesesOrden) {
     estiloTexto(ws.getCell(fila, 1), mes);
-    let filaTotal = 0;
     tiposDoc.forEach((td, i) => {
-      const v = (matrixDoc[mes] && matrixDoc[mes][td]) ? matrixDoc[mes][td] : 0;
-      estiloMonto(ws.getCell(fila, i + 2), v);
-      totalesColDoc[td] += v;
-      filaTotal += v;
+      const colLetter = ws.getCell(headerDoc, i + 2).address.replace(/\d+/, '');
+      const formula = `SUMIFS(TablaDatos[Importe Total],TablaDatos[Mes],A${fila},TablaDatos[Tipo Doc],${colLetter}$${headerDoc})`;
+      estiloMontoFormula(ws.getCell(fila, i + 2), formula);
     });
-    estiloMonto(ws.getCell(fila, tiposDoc.length + 2), filaTotal);
-    granTotalDoc += filaTotal;
+    const colInicio = ws.getCell(fila, 2).address;
+    const colFin = ws.getCell(fila, tiposDoc.length + 1).address;
+    estiloMontoFormula(ws.getCell(fila, tiposDoc.length + 2), `SUM(${colInicio}:${colFin})`);
     fila++;
   }
+  const ultimaFilaDoc = fila - 1;
 
   estiloTexto(ws.getCell(fila, 1), 'TOTAL');
   ws.getCell(fila, 1).font = { bold: true, name: 'Calibri', size: 10 };
-  tiposDoc.forEach((td, i) => estiloMonto(ws.getCell(fila, i + 2), totalesColDoc[td]));
-  estiloMonto(ws.getCell(fila, tiposDoc.length + 2), granTotalDoc);
+  tiposDoc.forEach((td, i) => {
+    const colLetter = ws.getCell(headerDoc, i + 2).address.replace(/\d+/, '');
+    estiloMontoFormula(ws.getCell(fila, i + 2), `SUM(${colLetter}${primeraFilaDoc}:${colLetter}${ultimaFilaDoc})`);
+  });
+  {
+    const colLetter = ws.getCell(headerDoc, tiposDoc.length + 2).address.replace(/\d+/, '');
+    estiloMontoFormula(ws.getCell(fila, tiposDoc.length + 2), `SUM(${colLetter}${primeraFilaDoc}:${colLetter}${ultimaFilaDoc})`);
+  }
   fila += 3;
 
-  // --- Matriz 3: cantidad de comprobantes Mes × Sentido ---
+  // --- Matriz 3: cantidad Mes × Sentido ---
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Cantidad de comprobantes por Mes × Sentido');
   ws.getRow(fila).height = 22;
   fila += 1;
 
+  const headerCant = fila;
   estiloEncabezado(ws.getCell(fila, 1), 'Mes');
   sentidos.forEach((s, i) => estiloEncabezado(ws.getCell(fila, i + 2), s));
   estiloEncabezado(ws.getCell(fila, sentidos.length + 2), 'Total');
@@ -406,20 +414,21 @@ function crearHojaTablaDinamica(wb, facturas) {
 
   for (const mes of mesesOrden) {
     estiloTexto(ws.getCell(fila, 1), mes);
-    let filaCant = 0;
     sentidos.forEach((s, i) => {
-      const v = (matrixSentido[mes] && matrixSentido[mes][s]) ? matrixSentido[mes][s].cantidad : 0;
-      estiloNumero(ws.getCell(fila, i + 2), v);
-      filaCant += v;
+      const colLetter = ws.getCell(headerCant, i + 2).address.replace(/\d+/, '');
+      const formula = `COUNTIFS(TablaDatos[Mes],A${fila},TablaDatos[Tipo],${colLetter}$${headerCant})`;
+      estiloNumeroFormula(ws.getCell(fila, i + 2), formula);
     });
-    estiloNumero(ws.getCell(fila, sentidos.length + 2), filaCant);
+    const colInicio = ws.getCell(fila, 2).address;
+    const colFin = ws.getCell(fila, sentidos.length + 1).address;
+    estiloNumeroFormula(ws.getCell(fila, sentidos.length + 2), `SUM(${colInicio}:${colFin})`);
     fila++;
   }
 
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-// ── HOJA 3: Dashboard profesional ───────────────────────────
+// ── HOJA 3: Dashboard profesional (KPIs y desgloses por fórmulas) ──
 function crearHojaDashboard(wb, facturas) {
   const ws = wb.addWorksheet('Dashboard', {
     properties: { tabColor: { argb: COLOR.azulMedio } },
@@ -429,7 +438,6 @@ function crearHojaDashboard(wb, facturas) {
     ws.getColumn(i + 1).width = w;
   });
 
-  // Título
   ws.mergeCells('A1:I1');
   const titulo = ws.getCell('A1');
   titulo.value = 'ContaFácil — Dashboard consolidado';
@@ -440,32 +448,54 @@ function crearHojaDashboard(wb, facturas) {
 
   ws.mergeCells('A2:I2');
   const sub = ws.getCell('A2');
-  sub.value = `Generado: ${new Date().toLocaleString('es-PE')}  ·  Formato montos: Contabilidad (PEN)  ·  Fuente: hoja Datos`;
+  sub.value = `Generado: ${new Date().toLocaleString('es-PE')}  ·  Montos: Contabilidad S/  ·  KPIs/desgloses = fórmulas sobre TablaDatos`;
   sub.font = { size: 9, italic: true, color: { argb: 'FF666666' }, name: 'Calibri' };
   ws.getRow(2).height = 18;
 
-  // KPIs
+  const periodo = periodoLabel(facturas);
   const emitidas = facturas.filter(esEmitida);
   const recibidas = facturas.filter(esRecibida);
-  const totalEmitidas = emitidas.reduce((s, f) => s + f.total, 0);
-  const totalRecibidas = recibidas.reduce((s, f) => s + f.total, 0);
-  const totalNeto = totalEmitidas - totalRecibidas;
-  const cantidad = facturas.length;
-  const periodo = periodoLabel(facturas);
 
   const kpis = [
-    { label: 'Total emitidas (S/)', value: totalEmitidas, isMoney: true, fill: COLOR.verdeSuave },
-    { label: 'Total recibidas (S/)', value: totalRecibidas, isMoney: true, fill: COLOR.naranjaSuave },
-    { label: 'Total neto (S/)', value: totalNeto, isMoney: true, fill: COLOR.azulClaro },
-    { label: 'Cantidad comprobantes', value: cantidad, isMoney: false, fill: COLOR.grisClaro },
-    { label: 'Periodo', value: periodo, isMoney: false, fill: COLOR.grisClaro, isText: true },
+    {
+      label: 'Total emitidas (S/)',
+      formula: 'SUMIF(TablaDatos[Tipo],"Emitida",TablaDatos[Importe Total])',
+      isMoney: true,
+      fill: COLOR.verdeSuave,
+    },
+    {
+      label: 'Total recibidas (S/)',
+      formula: 'SUMIF(TablaDatos[Tipo],"Recibida",TablaDatos[Importe Total])',
+      isMoney: true,
+      fill: COLOR.naranjaSuave,
+    },
+    {
+      label: 'Total neto (S/)',
+      formula: 'A5-B5',
+      isMoney: true,
+      fill: COLOR.azulClaro,
+      // A5/B5 se ajustan abajo según col real
+      formulaCols: true,
+    },
+    {
+      label: 'Cantidad comprobantes',
+      formula: 'COUNTA(TablaDatos[Tipo])',
+      isMoney: false,
+      fill: COLOR.grisClaro,
+    },
+    {
+      label: 'Periodo',
+      value: periodo,
+      isText: true,
+      fill: COLOR.grisClaro,
+    },
   ];
 
   let col = 1;
+  const kpiValueCells = {};
   for (const kpi of kpis) {
     const cLabel = ws.getCell(4, col);
     const cValue = ws.getCell(5, col);
-    ws.mergeCells(4, col, 4, col);
     cLabel.value = kpi.label;
     cLabel.font = { bold: true, size: 9, color: { argb: COLOR.azul }, name: 'Calibri' };
     cLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: kpi.fill } };
@@ -477,11 +507,10 @@ function crearHojaDashboard(wb, facturas) {
       cValue.numFmt = '@';
       cValue.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     } else if (kpi.isMoney) {
-      cValue.value = kpi.value;
+      kpiValueCells[kpi.label] = cValue.address;
       cValue.numFmt = FMT_CONTABILIDAD;
       cValue.alignment = { horizontal: 'center', vertical: 'middle' };
     } else {
-      cValue.value = kpi.value;
       cValue.alignment = { horizontal: 'center', vertical: 'middle' };
     }
     cValue.font = { bold: true, size: 14, color: { argb: COLOR.azul }, name: 'Calibri' };
@@ -490,10 +519,20 @@ function crearHojaDashboard(wb, facturas) {
     ws.getColumn(col).width = Math.max(ws.getColumn(col).width || 14, 18);
     col += 1;
   }
+
+  // Asignar fórmulas KPI (neto = emitidas - recibidas por dirección de celdas)
+  const addrEmit = kpiValueCells['Total emitidas (S/)'];
+  const addrRec = kpiValueCells['Total recibidas (S/)'];
+  const addrNeto = kpiValueCells['Total neto (S/)'];
+  ws.getCell(addrEmit).value = { formula: 'SUMIF(TablaDatos[Tipo],"Emitida",TablaDatos[Importe Total])' };
+  ws.getCell(addrRec).value = { formula: 'SUMIF(TablaDatos[Tipo],"Recibida",TablaDatos[Importe Total])' };
+  ws.getCell(addrNeto).value = { formula: `${addrEmit}-${addrRec}` };
+  // cantidad está en columna 4
+  ws.getCell(5, 4).value = { formula: 'COUNTA(TablaDatos[Tipo])' };
+
   ws.getRow(4).height = 28;
   ws.getRow(5).height = 28;
 
-  // Área de gráficos (ExcelJS 4.4 no genera charts nativos)
   ws.mergeCells('A7:E7');
   estiloTituloSeccion(ws.getCell('A7'), 'Área de gráficos (opcional en Excel)');
   ws.getRow(7).height = 22;
@@ -501,8 +540,8 @@ function crearHojaDashboard(wb, facturas) {
   const chartHint = ws.getCell('A8');
   chartHint.value = [
     'ExcelJS no inserta gráficos nativos en esta versión.',
-    'Sugerencia rápida: selecciona la matriz de "Tabla dinámica (precalculada)" → Insertar → Gráfico de columnas o barras.',
-    'También puedes usar Insertar → Tabla dinámica sobre la hoja Datos para segmentadores (slicers).',
+    'Sugerencia: selecciona la matriz de "Tabla dinámica" (valores ya son fórmulas) → Insertar → Gráfico.',
+    'También puedes agregar más fórmulas en este Dashboard referenciando TablaDatos.',
   ].join('\n');
   chartHint.alignment = { wrapText: true, vertical: 'top' };
   chartHint.font = { size: 9, name: 'Calibri', color: { argb: 'FF555555' } };
@@ -521,28 +560,18 @@ function crearHojaDashboard(wb, facturas) {
   });
   fila++;
 
-  const porMes = {};
-  for (const f of facturas) {
-    if (!porMes[f.mes]) porMes[f.mes] = { cantidad: 0, emitidas: 0, recibidas: 0, total: 0, igv: 0 };
-    porMes[f.mes].cantidad++;
-    porMes[f.mes].total += f.total;
-    porMes[f.mes].igv += f.igv;
-    if (esEmitida(f)) porMes[f.mes].emitidas += f.total;
-    if (esRecibida(f)) porMes[f.mes].recibidas += f.total;
-  }
-
-  for (const [mes, d] of Object.entries(porMes)) {
+  const mesesOrden = [...new Set(facturas.map(f => f.mes))];
+  for (const mes of mesesOrden) {
     estiloTexto(ws.getCell(fila, 1), mes);
-    estiloNumero(ws.getCell(fila, 2), d.cantidad);
-    estiloMonto(ws.getCell(fila, 3), d.emitidas);
-    estiloMonto(ws.getCell(fila, 4), d.recibidas);
-    estiloMonto(ws.getCell(fila, 5), d.total);
-    estiloMonto(ws.getCell(fila, 6), d.igv);
+    estiloNumeroFormula(ws.getCell(fila, 2), `COUNTIF(TablaDatos[Mes],A${fila})`);
+    estiloMontoFormula(ws.getCell(fila, 3), `SUMIFS(TablaDatos[Importe Total],TablaDatos[Mes],A${fila},TablaDatos[Tipo],"Emitida")`);
+    estiloMontoFormula(ws.getCell(fila, 4), `SUMIFS(TablaDatos[Importe Total],TablaDatos[Mes],A${fila},TablaDatos[Tipo],"Recibida")`);
+    estiloMontoFormula(ws.getCell(fila, 5), `SUMIF(TablaDatos[Mes],A${fila},TablaDatos[Importe Total])`);
+    estiloMontoFormula(ws.getCell(fila, 6), `SUMIF(TablaDatos[Mes],A${fila},TablaDatos[IGV])`);
     fila++;
   }
 
   fila += 2;
-  // --- Por tipo doc ---
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Desglose por tipo de documento (FE / NC / ND)');
   ws.getRow(fila).height = 22;
@@ -553,26 +582,17 @@ function crearHojaDashboard(wb, facturas) {
   });
   fila++;
 
-  const porDoc = {};
-  for (const f of facturas) {
-    const k = f.tipoDoc || 'FE';
-    if (!porDoc[k]) porDoc[k] = { cantidad: 0, total: 0, igv: 0, neto: 0 };
-    porDoc[k].cantidad++;
-    porDoc[k].total += f.total;
-    porDoc[k].igv += f.igv;
-    porDoc[k].neto += f.netoPagar;
-  }
-  for (const [td, d] of Object.entries(porDoc)) {
+  const tiposDoc = ['FE', 'NC', 'ND'].filter(td => facturas.some(f => f.tipoDoc === td));
+  for (const td of tiposDoc) {
     estiloTexto(ws.getCell(fila, 1), td);
-    estiloNumero(ws.getCell(fila, 2), d.cantidad);
-    estiloMonto(ws.getCell(fila, 3), d.total);
-    estiloMonto(ws.getCell(fila, 4), d.igv);
-    estiloMonto(ws.getCell(fila, 5), d.neto);
+    estiloNumeroFormula(ws.getCell(fila, 2), `COUNTIF(TablaDatos[Tipo Doc],A${fila})`);
+    estiloMontoFormula(ws.getCell(fila, 3), `SUMIF(TablaDatos[Tipo Doc],A${fila},TablaDatos[Importe Total])`);
+    estiloMontoFormula(ws.getCell(fila, 4), `SUMIF(TablaDatos[Tipo Doc],A${fila},TablaDatos[IGV])`);
+    estiloMontoFormula(ws.getCell(fila, 5), `SUMIF(TablaDatos[Tipo Doc],A${fila},TablaDatos[Neto a Pagar])`);
     fila++;
   }
 
   fila += 2;
-  // --- Por sentido ---
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Desglose por sentido (Emitida / Recibida)');
   ws.getRow(fila).height = 22;
@@ -583,24 +603,17 @@ function crearHojaDashboard(wb, facturas) {
   });
   fila++;
 
-  const porTipo = {};
-  for (const f of facturas) {
-    if (!porTipo[f.tipo]) porTipo[f.tipo] = { cantidad: 0, total: 0, igv: 0, neto: 0 };
-    porTipo[f.tipo].cantidad++;
-    porTipo[f.tipo].total += f.total;
-    porTipo[f.tipo].igv += f.igv;
-    porTipo[f.tipo].neto += f.netoPagar;
-  }
-  for (const [tipo, d] of Object.entries(porTipo)) {
+  const sentidos = [...new Set(facturas.map(f => f.tipo))].sort();
+  for (const tipo of sentidos) {
     estiloTexto(ws.getCell(fila, 1), tipo);
-    estiloNumero(ws.getCell(fila, 2), d.cantidad);
-    estiloMonto(ws.getCell(fila, 3), d.total);
-    estiloMonto(ws.getCell(fila, 4), d.igv);
-    estiloMonto(ws.getCell(fila, 5), d.neto);
+    estiloNumeroFormula(ws.getCell(fila, 2), `COUNTIF(TablaDatos[Tipo],A${fila})`);
+    estiloMontoFormula(ws.getCell(fila, 3), `SUMIF(TablaDatos[Tipo],A${fila},TablaDatos[Importe Total])`);
+    estiloMontoFormula(ws.getCell(fila, 4), `SUMIF(TablaDatos[Tipo],A${fila},TablaDatos[IGV])`);
+    estiloMontoFormula(ws.getCell(fila, 5), `SUMIF(TablaDatos[Tipo],A${fila},TablaDatos[Neto a Pagar])`);
     fila++;
   }
 
-  // Top clientes (emitidas → razón cliente) y top proveedores (recibidas → razón emisor)
+  // Top clientes: esqueleto RUC/razón desde Node; N°/montos por fórmula
   fila += 2;
   ws.mergeCells(fila, 1, fila, 5);
   estiloTituloSeccion(ws.getCell(fila, 1), 'Top 10 clientes (comprobantes emitidos)');
@@ -612,10 +625,8 @@ function crearHojaDashboard(wb, facturas) {
   const topClientes = {};
   for (const f of emitidas) {
     const clave = f.rucCliente || 'Sin RUC';
-    if (!topClientes[clave]) topClientes[clave] = { razon: f.razonCliente, cantidad: 0, total: 0, igv: 0 };
-    topClientes[clave].cantidad++;
+    if (!topClientes[clave]) topClientes[clave] = { razon: f.razonCliente, total: 0 };
     topClientes[clave].total += f.total;
-    topClientes[clave].igv += f.igv;
   }
   const rankingClientes = Object.entries(topClientes)
     .sort((a, b) => b[1].total - a[1].total)
@@ -627,9 +638,9 @@ function crearHojaDashboard(wb, facturas) {
     for (const [ruc, d] of rankingClientes) {
       estiloTexto(ws.getCell(fila, 1), ruc);
       estiloTexto(ws.getCell(fila, 2), d.razon);
-      estiloNumero(ws.getCell(fila, 3), d.cantidad);
-      estiloMonto(ws.getCell(fila, 4), d.total);
-      estiloMonto(ws.getCell(fila, 5), d.igv);
+      estiloNumeroFormula(ws.getCell(fila, 3), `COUNTIFS(TablaDatos[Tipo],"Emitida",TablaDatos[RUC Cliente],A${fila})`);
+      estiloMontoFormula(ws.getCell(fila, 4), `SUMIFS(TablaDatos[Importe Total],TablaDatos[Tipo],"Emitida",TablaDatos[RUC Cliente],A${fila})`);
+      estiloMontoFormula(ws.getCell(fila, 5), `SUMIFS(TablaDatos[IGV],TablaDatos[Tipo],"Emitida",TablaDatos[RUC Cliente],A${fila})`);
       fila++;
     }
   }
@@ -645,10 +656,8 @@ function crearHojaDashboard(wb, facturas) {
   const topProv = {};
   for (const f of recibidas) {
     const clave = f.rucEmisor || 'Sin RUC';
-    if (!topProv[clave]) topProv[clave] = { razon: f.razonEmisor, cantidad: 0, total: 0, igv: 0 };
-    topProv[clave].cantidad++;
+    if (!topProv[clave]) topProv[clave] = { razon: f.razonEmisor, total: 0 };
     topProv[clave].total += f.total;
-    topProv[clave].igv += f.igv;
   }
   const rankingProv = Object.entries(topProv)
     .sort((a, b) => b[1].total - a[1].total)
@@ -660,9 +669,9 @@ function crearHojaDashboard(wb, facturas) {
     for (const [ruc, d] of rankingProv) {
       estiloTexto(ws.getCell(fila, 1), ruc);
       estiloTexto(ws.getCell(fila, 2), d.razon);
-      estiloNumero(ws.getCell(fila, 3), d.cantidad);
-      estiloMonto(ws.getCell(fila, 4), d.total);
-      estiloMonto(ws.getCell(fila, 5), d.igv);
+      estiloNumeroFormula(ws.getCell(fila, 3), `COUNTIFS(TablaDatos[Tipo],"Recibida",TablaDatos[RUC Emisor],A${fila})`);
+      estiloMontoFormula(ws.getCell(fila, 4), `SUMIFS(TablaDatos[Importe Total],TablaDatos[Tipo],"Recibida",TablaDatos[RUC Emisor],A${fila})`);
+      estiloMontoFormula(ws.getCell(fila, 5), `SUMIFS(TablaDatos[IGV],TablaDatos[Tipo],"Recibida",TablaDatos[RUC Emisor],A${fila})`);
       fila++;
     }
   }
@@ -670,31 +679,19 @@ function crearHojaDashboard(wb, facturas) {
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
-// ── HOJA 4: instrucciones para pivot nativo ─────────────────
+// ── HOJA 4: tip breve ───────────────────────────────────────
 function crearHojaInstrucciones(wb) {
-  const ws = wb.addWorksheet('Cómo crear tabla dinámica');
-  ws.columns = [{ width: 95 }];
+  const ws = wb.addWorksheet('Tips');
+  ws.columns = [{ width: 100 }];
 
   const pasos = [
-    'CÓMO CREAR UNA TABLA DINÁMICA NATIVA DE EXCEL (opcional)',
+    'Tips ContaFácil — Excel consolidado',
     '',
-    'Este archivo ya incluye:',
-    '  • Hoja "Datos" — tabla filtrable con formato contabilidad',
-    '  • Hoja "Tabla dinámica (precalculada)" — matrices Mes × Tipo listas para usar',
-    '  • Hoja "Dashboard" — KPIs y desgloses profesionales',
-    '',
-    'Si además quieres una PivotTable nativa de Excel (con segmentadores):',
-    '1. Ve a la hoja "Datos" y haz clic en cualquier celda de la tabla.',
-    '2. Insertar → Tabla dinámica → Aceptar (elige hoja nueva).',
-    '3. En el panel de campos:',
-    '   - FILAS: Mes o Razón Social Cliente / Emisor',
-    '   - COLUMNAS: Tipo o Tipo Doc',
-    '   - VALORES: Importe Total (o IGV / Neto a Pagar)',
-    '   - FILTROS: Tipo, Tipo Doc, Moneda',
-    '4. (Excel Windows/Mac) Insertar → Segmentación de datos para filtros visuales.',
-    '',
-    'Los montos usan formato Contabilidad: _(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)',
-    'La hoja precalculada se actualiza al volver a ejecutar la descarga consolidada.',
+    '• Hoja Datos: tabla Excel "TablaDatos" (fuente de verdad).',
+    '• Dashboard y Tabla dinámica: los totales son fórmulas (SUMIF/SUMIFS/COUNTIF) sobre TablaDatos.',
+    '• Formato de montos: Contabilidad con S/  →  _("S/"* #,##0.00_);_("S/"* (#,##0.00);_("S/"* "-"??_);_(@_)',
+    '• Puedes agregar más fórmulas en Dashboard referenciando TablaDatos[Columna].',
+    '• Pivot nativa opcional: Datos → Insertar → Tabla dinámica.',
   ];
 
   pasos.forEach((texto, i) => {
