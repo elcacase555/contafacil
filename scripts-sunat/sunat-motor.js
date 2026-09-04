@@ -440,7 +440,7 @@ async function crearExcel(datos, rutaExcel) {
   ];
 
   // Formato Contabilidad (estilo Excel Accounting) para montos en PEN
-  const FMT_CONTABILIDAD = '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)';
+  const FMT_CONTABILIDAD = '_("S/"* #,##0.00_);_("S/"* (#,##0.00);_("S/"* "-"??_);_(@_)';
   const montos = new Set(['Sub Total (S/)', 'IGV 18% (S/)', 'Importe Total (S/)', 'Monto Detracción (S/)', 'Neto a Pagar (S/)']);
   const porcentajes = new Set(['% Detracción']);
 
