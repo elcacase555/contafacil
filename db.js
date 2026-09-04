@@ -10,12 +10,14 @@
 // ============================================================
 
 const Database = require('better-sqlite3');
+const fs = require('fs');
 const path = require('path');
 
 const RUTA_DB = path.join(__dirname, 'data', 'contafacil.db');
 
 const db = new Database(RUTA_DB);
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS contadores (
@@ -80,5 +82,27 @@ db.exec(`
   INSERT OR IGNORE INTO admin_seguridad (id, intentos_fallidos, nivel_bloqueo)
   VALUES (1, 0, 0);
 `);
+
+// ---------------------------------------------------------------------------
+// Núcleo contable: carga DDL + semilla PCGE desde sql/*.sql (idempotente).
+// Si faltan los archivos, no rompe el arranque de la app existente.
+// ---------------------------------------------------------------------------
+function ejecutarSqlArchivo(rutaRelativa) {
+  const ruta = path.join(__dirname, rutaRelativa);
+  if (!fs.existsSync(ruta)) {
+    console.warn(`[db] No se encontró ${rutaRelativa}; se omite.`);
+    return;
+  }
+  const sql = fs.readFileSync(ruta, 'utf8');
+  db.exec(sql);
+}
+
+try {
+  ejecutarSqlArchivo(path.join('sql', 'schema-contable.sql'));
+  ejecutarSqlArchivo(path.join('sql', 'seed-pcge.sql'));
+} catch (err) {
+  console.error('[db] Error al aplicar esquema contable:', err.message);
+  throw err;
+}
 
 module.exports = db;
