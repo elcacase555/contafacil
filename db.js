@@ -13,6 +13,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 
 const RUTA_DB = path.join(__dirname, 'data', 'contafacil.db');
+require('fs').mkdirSync(path.dirname(RUTA_DB), { recursive: true });
 
 const db = new Database(RUTA_DB);
 db.pragma('journal_mode = WAL');
@@ -81,4 +82,5 @@ db.exec(`
   VALUES (1, 0, 0);
 `);
 
+require('./modules/contabilidad/service').migrate(db);
 module.exports = db;

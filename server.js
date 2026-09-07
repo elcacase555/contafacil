@@ -116,6 +116,11 @@ function requiereAdmin(req, res, next) {
   return res.redirect('/admin/login');
 }
 
+app.use('/api/contabilidad', require('./modules/contabilidad/routes').routes(db));
+app.get('/contabilidad', requiereLogin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'contabilidad.html'));
+});
+
 // ── RUTA: pantalla de login ───────────────────────────────
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'login.html'));
@@ -286,6 +291,9 @@ app.post('/api/clientes', requiereLogin, async (req, res) => {
 
 // ── RUTA: eliminar un cliente SUNAT (solo si pertenece al contador logueado) ──
 app.delete('/api/clientes/:id', requiereLogin, async (req, res) => {
+  if (db.prepare('SELECT 1 FROM ct_cuentas WHERE contador_id=? AND cliente_id=?').get(req.session.contadorId, req.params.id)) {
+    return res.status(409).json({ ok: false, mensaje: 'El cliente tiene un expediente contable. No se puede eliminar.' });
+  }
   const resultado = db.prepare(`
     DELETE FROM clientes_sunat WHERE id = ? AND contador_id = ?
   `).run(req.params.id, req.session.contadorId);
@@ -531,6 +539,16 @@ app.post('/api/descargar', requiereLogin, limitadorDescargas, async (req, res) =
     }
 
     const totalGeneral = calcularTotalGeneral(tipo, resultado);
+    if (req.body.importarContabilidad === true && ['xml', 'todo', 'consolidado'].includes(tipo)) {
+      try {
+        const ingesta = await require('./modules/contabilidad/import-folder').importFolder(db, req.session.contadorId, clienteIdNum, carpetaCliente);
+        resultado = { ...resultado, contabilidad: ingesta };
+        onProgreso({ mensaje: `Contabilidad: ${ingesta.importados} XML importados, ${ingesta.duplicados} duplicados, ${ingesta.errores.length} observados. Revisa el panel contable.`, etapa: 'contabilidad' });
+      } catch (e) {
+        resultado = { ...resultado, contabilidad: { error: e.message } };
+        onProgreso({ mensaje: 'La descarga terminó; la importación contable requiere revisión en el panel XML.', etapa: 'contabilidad' });
+      }
+    }
 
     if (totalGeneral === 0) {
       cerrarJob(jobId, {
@@ -714,6 +732,9 @@ app.patch('/api/admin/contadores/:id/clave', requiereAdmin, async (req, res) => 
 
 // ── RUTA: eliminar un contador y todos sus clientes SUNAT ──
 app.delete('/api/admin/contadores/:id', requiereAdmin, async (req, res) => {
+  if (db.prepare('SELECT 1 FROM ct_cuentas WHERE contador_id=? LIMIT 1').get(req.params.id)) {
+    return res.status(409).json({ ok: false, mensaje: 'El contador tiene expedientes contables. Desactive su cuenta para conservarlos.' });
+  }
   // Primero borramos sus clientes SUNAT (por la relación de llave foránea),
   // luego al contador mismo.
   db.prepare('DELETE FROM clientes_sunat WHERE contador_id = ?').run(req.params.id);
