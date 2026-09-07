@@ -180,6 +180,10 @@
       </div>
 
       <p class="error" id="error"></p>
+      <label style="display:flex;gap:8px;align-items:center;margin:16px 0">
+        <input type="checkbox" id="importarContabilidad" style="width:auto">
+        Importar los XML de esta carpeta al expediente contable al terminar (sin contabilizar)
+      </label>
 
       <button class="btn-iniciar" id="btnIniciar" onclick="iniciarDescarga()">⬇ Iniciar descarga</button>
     </div>
@@ -302,6 +306,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clienteId, tipo: opcion, carpetaDestino,
+          importarContabilidad: document.getElementById('importarContabilidad').checked,
           mesDesde, anioDesde, mesHasta, anioHasta,
           paquete: paqueteSeleccionado, tipoComprobante,
         }),
