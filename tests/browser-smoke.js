@@ -6,9 +6,15 @@ const express = require("express"),
 const { chromium } = require("playwright");
 const { setup, fixture } = require("./helpers");
 const { routes } = require("../modules/contabilidad/routes");
+const fs = require("fs/promises"),
+  os = require("os");
 (async () => {
   const { db } = setup(),
     app = express();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ct-browser-"));
+  db.exec(
+    "ALTER TABLE clientes_sunat ADD COLUMN usuario_sol TEXT; ALTER TABLE clientes_sunat ADD COLUMN clave_sol_cifrada TEXT; UPDATE clientes_sunat SET clave_sol_cifrada='test'",
+  );
   app.use(express.json());
   const session = { contadorId: 1 };
   app.use((req, res, next) => {
@@ -28,7 +34,22 @@ const { routes } = require("../modules/contabilidad/routes");
         .all(),
     ),
   );
-  app.use("/api/contabilidad", routes(db));
+  app.use(
+    "/api/contabilidad",
+    routes(db, {
+      root,
+      encrypt: (x) => x,
+      decrypt: (x) => x,
+      download: async (c, m, folder, cb, pack) => {
+        await fs.mkdir(folder, { recursive: true });
+        if (pack === "FE")
+          await fs.writeFile(
+            path.join(folder, "auto.xml"),
+            fixture({ supplier: c.ruc }),
+          );
+      },
+    }),
+  );
   const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   let browser;
@@ -42,17 +63,16 @@ const { routes } = require("../modules/contabilidad/routes");
     await page.goto(
       "http://127.0.0.1:" + server.address().port + "/contabilidad",
     );
+    await page.locator('[data-tab="crm"]').click();
     await page.waitForSelector("#clientesCrm table");
     await page.locator("#periodo").fill("2026-08");
     await page.locator("#periodo").dispatchEvent("change");
     await page.locator('[data-tab="xml"]').click();
-    await page
-      .locator("#archivos")
-      .setInputFiles({
-        name: "factura.xml",
-        mimeType: "application/xml",
-        buffer: Buffer.from(fixture()),
-      });
+    await page.locator("#archivos").setInputFiles({
+      name: "factura.xml",
+      mimeType: "application/xml",
+      buffer: Buffer.from(fixture()),
+    });
     await page
       .getByRole("button", { name: "Importar XML", exact: true })
       .click();
@@ -102,6 +122,54 @@ const { routes } = require("../modules/contabilidad/routes");
       await page.locator("#asientos").innerText(),
       /Todavía no hay registros/,
     );
+    await page.locator('[data-tab="automatizar"]').click();
+    await page
+      .locator('#autoConfigForm select[name="cuentaVenta"]')
+      .selectOption("70111");
+    await page
+      .locator('#autoConfigForm select[name="cuentaCompra"]')
+      .selectOption("6399");
+    await page
+      .getByRole("button", { name: "Guardar configuración", exact: true })
+      .click();
+    await page
+      .getByText("Configuración guardada para esta empresa.", { exact: true })
+      .waitFor();
+    await page.locator('#autoForm input[name="desde"]').fill("2026-08-01");
+    await page.locator('#autoForm input[name="hasta"]').fill("2026-08-10");
+    await page.locator('#autoForm input[name="usarSire"]').uncheck();
+    await page
+      .getByRole("button", {
+        name: "Descargar XML y generar Excel",
+        exact: true,
+      })
+      .click();
+    const excelLink = page.getByRole("link", {
+      name: "Descargar libros y estados en Excel",
+    });
+    await excelLink.waitFor();
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      excelLink.click(),
+    ]);
+    assert.equal(await download.failure(), null);
+    assert.match(download.suggestedFilename(), /20100000003.*xlsx/);
+    assert.match(
+      await page.locator("#autoStatus").innerText(),
+      /con observaciones/,
+    );
+    if (process.env.CT_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.CT_SCREENSHOT,
+        fullPage: true,
+      });
+    await page.reload();
+    await page.locator("#cliente").selectOption("3");
+    await page
+      .locator("#autoJobs")
+      .getByRole("button", { name: "Ver resultado" })
+      .click();
+    await excelLink.waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
@@ -111,12 +179,19 @@ const { routes } = require("../modules/contabilidad/routes");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "Browser smoke OK: import, proposal, posting, statements, tax, CRM, company switch and mobile layout.",
+      "Browser smoke OK: import, posting, statements, tax, CRM, company isolation, one-click automation, Excel download, saved jobs and mobile layout.",
     );
   } finally {
     if (browser) await browser.close();
     server.close();
     db.close();
+    const resolved = path.resolve(root);
+    if (
+      !resolved.startsWith(path.resolve(os.tmpdir()) + path.sep) ||
+      !path.basename(resolved).startsWith("ct-browser-")
+    )
+      throw new Error("Unsafe cleanup");
+    await fs.rm(resolved, { recursive: true, force: true });
   }
 })().catch((e) => {
   console.error(e);

@@ -192,7 +192,7 @@ observadas. No deduce operaciones “sin movimiento” de una importación vací
 
 Antes del uso fiscal: confirmar razón social legal, conciliar todos los documentos
 con la propuesta SUNAT, verificar modificatorias y reglas aplicables, nombre/codificación
-de archivo y validar con PVSIRE. Faltan integración API SIRE, tickets, constancias,
+de archivo y validar con PVSIRE. Existe ahora un [flujo de descarga API SIRE y tickets para conciliación](automatizacion.md). Faltan constancias,
 validación de CDR/firma, ajustes posteriores, no domiciliados, detracciones/retenciones,
 prorrata, exportaciones, anticipos y otros perfiles especiales. El CSV está rotulado
 como papel de trabajo y no se presenta como archivo oficial.

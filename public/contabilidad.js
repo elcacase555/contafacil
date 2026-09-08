@@ -580,6 +580,7 @@ async function refresh() {
     ]),
   );
   if (!$("lineas").children.length) resetEntry();
+  await loadAutomation();
 }
 async function changeClient() {
   editId = null;
@@ -739,6 +740,129 @@ action(async () => {
   }
   const id = new URLSearchParams(location.search).get("cliente");
   if (clients.some((c) => String(c.id) === id)) $("cliente").value = id;
-  switchTab("crm");
+  $("autoForm").elements.desde.value = today.slice(0, 7) + "-01";
+  $("autoForm").elements.hasta.value = today;
+  switchTab("automatizar");
   await refresh();
+});
+
+let autoTimer = null,
+  autoConfigClient = null,
+  autoWatching = null;
+async function loadAutomation(followRunning = true) {
+  const cid = $("cliente").value,
+    base = endpoint("/automatizacion");
+  const [cfg, jobs] = await Promise.all([
+    request(base + "/config"),
+    request(base),
+  ]);
+  if ($("cliente").value !== cid) return;
+  if (autoConfigClient !== cid) {
+    clearTimeout(autoTimer);
+    autoWatching = null;
+    autoConfigClient = cid;
+    $("autoSummary").replaceChildren();
+    $("autoStatus").textContent = "";
+    const f = $("autoConfigForm");
+    f.reset();
+    for (const [key, classes] of [
+      ["cuentaVenta", ["ingreso"]],
+      ["cuentaCompra", ["gasto", "activo"]],
+    ]) {
+      const s = f.elements[key];
+      s.replaceChildren();
+      for (const [value, label] of [
+        ["", "Seleccione una cuenta"],
+        ...cuentas
+          .filter((c) => classes.includes(c.clase))
+          .map((c) => [c.codigo, c.codigo + " · " + c.nombre]),
+      ]) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = label;
+        s.append(o);
+      }
+      s.value = cfg.reglas[key];
+    }
+    f.elements.creditoFiscal.checked = cfg.reglas.creditoFiscal;
+    f.elements.contabilizar.checked = cfg.reglas.contabilizar;
+    $("autoSettings").open = !cfg.reglas.cuentaVenta;
+  }
+  $("sireConfigStatus").textContent = cfg.sireConfigurado
+    ? "API SIRE configurada. Las claves guardadas no se muestran."
+    : "Sin credenciales API SIRE. Configúralas para conciliar automáticamente.";
+  table(
+    "autoJobs",
+    ["Desde", "Hasta", "Estado", "Progreso", "Resultado"],
+    jobs.map((j) => [
+      j.desde,
+      j.hasta,
+      j.estado,
+      j.progreso,
+      button("Ver resultado", () => watchAutomation(cid, j.id)),
+    ]),
+  );
+  const running = jobs.find((j) => j.estado === "procesando");
+  if (followRunning && running && autoWatching !== running.id)
+    await watchAutomation(cid, running.id);
+}
+async function watchAutomation(cid, id) {
+  clearTimeout(autoTimer);
+  autoWatching = id;
+  const base = api + "/clientes/" + cid + "/automatizacion/" + id,
+    j = await request(base);
+  if ($("cliente").value !== cid || autoWatching !== id) return;
+  $("autoStatus").textContent =
+    j.estado.replaceAll("_", " ") + " · " + j.progreso;
+  const target = $("autoSummary");
+  target.replaceChildren();
+  if (j.resultado) {
+    const r = j.resultado;
+    table(
+      target,
+      ["Concepto", "Cantidad"],
+      [
+        ["XML del rango", r.documentos ?? 0],
+        ["Nuevas propuestas", r.propuestos ?? 0],
+        ["Contabilizados automáticamente", r.contabilizados ?? 0],
+        ["Coincidencias SIRE", r.coinciden ?? 0],
+        ["Observaciones", r.observaciones?.length ?? 0],
+      ],
+    );
+    if (["completado", "con_observaciones"].includes(j.estado)) {
+      const a = document.createElement("a");
+      a.href = base + "/excel";
+      a.textContent = "Descargar libros y estados en Excel";
+      target.append(a);
+    }
+    const details = document.createElement("div");
+    table(
+      details,
+      ["Etapa", "Documento", "Observación"],
+      (r.observaciones || []).map((o) => [o.etapa, o.documento, o.mensaje]),
+    );
+    target.append(details);
+  }
+  if (j.estado === "procesando")
+    autoTimer = setTimeout(() => action(() => watchAutomation(cid, id)), 2500);
+  else await loadAutomation(false);
+}
+form("autoConfigForm", async (f) => {
+  const data = fields(f);
+  data.creditoFiscal = f.elements.creditoFiscal.checked;
+  data.contabilizar = f.elements.contabilizar.checked;
+  await request(endpoint("/automatizacion/config"), "PUT", data);
+  f.elements.clientId.value = "";
+  f.elements.clientSecret.value = "";
+  msg("Configuración guardada para esta empresa.");
+});
+form("autoForm", async (f) => {
+  const cid = $("cliente").value,
+    data = fields(f);
+  data.usarSire = f.elements.usarSire.checked;
+  const job = await request(endpoint("/automatizacion"), "POST", data);
+  msg(
+    "Proceso iniciado. Puedes seguir el avance y descargar el Excel al terminar.",
+  );
+  await watchAutomation(cid, job.id);
 });
