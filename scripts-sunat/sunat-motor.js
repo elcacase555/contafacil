@@ -235,7 +235,7 @@ async function descargarXMLsDelMes(page, configMes, carpetaMes, onProgreso, paqu
 }
 
 // ── EXTRAER EL .XML DE CADA .ZIP DESCARGADO ───────────────
-function extraerXMLsDeZips(carpetaMes) {
+function extraerXMLsDeZips(carpetaMes, onProgreso) {
   const archivos = fs.readdirSync(carpetaMes);
   const zips = archivos.filter(f => f.toLowerCase().endsWith('.zip'));
 
@@ -243,14 +243,19 @@ function extraerXMLsDeZips(carpetaMes) {
     try {
       const zip = new AdmZip(path.join(carpetaMes, zipFile));
       const entradas = zip.getEntries();
-      const xmlEntry = entradas.find(e => e.entryName.toUpperCase().endsWith('.XML'));
-      if (xmlEntry) {
-        const destino = path.join(carpetaMes, xmlEntry.entryName);
-        fs.writeFileSync(destino, zip.readFile(xmlEntry));
+      const xmls = entradas.filter(e => !e.isDirectory && e.entryName.toUpperCase().endsWith('.XML'));
+      if (!xmls.length || xmls.length > 100 || xmls.some(e => e.header.size > 2*1024*1024)) throw new Error('ZIP sin XML o tamaño excedido');
+      for (const xmlEntry of xmls) {
+        const bytes = zip.readFile(xmlEntry);
+        const nombre = path.basename(xmlEntry.entryName.replace(/\\/g,'/')).replace(/[<>:"|?*\x00-\x1f]/g,'_');
+        let destino = path.join(carpetaMes, nombre);
+        if (fs.existsSync(destino) && !fs.readFileSync(destino).equals(bytes)) destino = path.join(carpetaMes,require('crypto').createHash('sha256').update(bytes).digest('hex').slice(0,12)+'-'+nombre);
+        fs.writeFileSync(destino, bytes);
       }
       fs.unlinkSync(path.join(carpetaMes, zipFile));
     } catch (err) {
       console.error(`  ⚠️  No se pudo extraer ${zipFile}: ${err.message}`);
+      if (onProgreso) avisar(onProgreso,'No se pudo extraer un ZIP: '+zipFile,{etapa:'xml_error'});
     }
   }
 }
@@ -754,6 +759,7 @@ async function descargarTodo(credenciales, meses, carpetaDestino, onProgreso, pa
 }
 
 module.exports = {
+  descargarOrganizado,
   descargarSoloPDF,
   descargarSoloXML,
   descargarSoloExcel,
@@ -761,3 +767,35 @@ module.exports = {
   tiposAProcesar,
   etiquetaPaqueteTipo,
 };
+
+// Explicit destinations supplied by the simulation coordinator; one SOL login.
+async function descargarOrganizado(credenciales, meses, carpeta, onProgreso) {
+  const { browser, page } = await abrirYLoguear(credenciales, onProgreso);
+  try {
+    for (const [pack, label] of [['FE','Facturas'],['NC','Notas de credito'],['ND','Notas de debito']]) {
+      for (const [tipo, direction] of [['emitidas','Emitidas'],['recibidas','Recibidas']]) {
+        const base = path.join(carpeta,'Comprobantes de pago',label,direction);
+        for (const format of ['XML','PDF','Excel']) fs.mkdirSync(path.join(base,format),{recursive:true});
+        for (const mes of meses) {
+          const cb = event => avisar(onProgreso,event.mensaje,{...event,paquete:pack,tipo,mes:mes.mes});
+          avisar(onProgreso, `${label} ${direction}: ${mes.mes}`,{etapa:'mes_inicio'});
+          try {
+            await navegarAlFormulario(page);
+            await buscarMes(page,mes,pack,tipo);
+            await descargarXMLsDelMes(page,mes,path.join(base,'XML'),cb,pack);
+            extraerXMLsDeZips(path.join(base,'XML'),cb);
+          } catch {
+            avisar(onProgreso,`${label} ${direction}: descarga XML incompleta`,{etapa:'xml_error'});
+          }
+          try {
+            await navegarAlFormulario(page);
+            await buscarMes(page,mes,pack,tipo);
+            await descargarPDFsDelMes(page,mes,path.join(base,'PDF'),cb);
+          } catch {
+            avisar(onProgreso,`${label} ${direction}: descarga PDF incompleta`,{etapa:'pdf_error'});
+          }
+        }
+      }
+    }
+  } finally { await browser.close(); }
+}

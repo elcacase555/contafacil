@@ -40,13 +40,18 @@ const fs = require("fs/promises"),
       root,
       encrypt: (x) => x,
       decrypt: (x) => x,
-      download: async (c, m, folder, cb, pack) => {
-        await fs.mkdir(folder, { recursive: true });
-        if (pack === "FE")
-          await fs.writeFile(
-            path.join(folder, "auto.xml"),
-            fixture({ supplier: c.ruc }),
-          );
+      downloadOrganized: async (c, m, folder) => {
+        await fs.writeFile(
+          path.join(
+            folder,
+            "Comprobantes de pago",
+            "Facturas",
+            "Emitidas",
+            "XML",
+            "auto.xml",
+          ),
+          fixture({ supplier: c.ruc }),
+        );
       },
     }),
   );
@@ -123,6 +128,7 @@ const fs = require("fs/promises"),
       /Todavía no hay registros/,
     );
     await page.locator('[data-tab="automatizar"]').click();
+    await page.locator("#autoSettings summary").click();
     await page
       .locator('#autoConfigForm select[name="cuentaVenta"]')
       .selectOption("70111");
@@ -137,7 +143,7 @@ const fs = require("fs/promises"),
       .waitFor();
     await page.locator('#autoForm input[name="desde"]').fill("2026-08-01");
     await page.locator('#autoForm input[name="hasta"]').fill("2026-08-10");
-    await page.locator('#autoForm input[name="usarSire"]').uncheck();
+    await page.locator('#autoForm input[name="carpetaDestino"]').fill(root);
     await page
       .getByRole("button", {
         name: "Descargar XML y generar Excel",

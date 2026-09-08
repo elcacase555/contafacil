@@ -190,9 +190,7 @@ td select {
   border-radius: 7px;
 }
 #mensaje {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  position: relative;
   border-radius: 8px;
   background: #e3f1e6;
   padding: 0 14px;
@@ -267,4 +265,8 @@ a {
   main {
     padding: 22px 12px;
   }
+}
+/* Long Windows destinations should remain readable on narrow screens. */
+#autoSummary p {
+  overflow-wrap: anywhere;
 }

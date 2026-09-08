@@ -18,11 +18,18 @@ de actualizar una instalación con datos, realiza una copia consistente de la ba
 
 ### Descargar y generar Excel
 
-En **Contabilidad y CRM → Descargar y generar Excel**, selecciona empresa y
-fechas desde/hasta. Guarda una vez las cuentas de ventas/compras y, para consultar
-SIRE, el Client ID y Client Secret de API SUNAT de esa empresa. Se utilizan además
-las credenciales SOL ya guardadas. Después basta pulsar **Descargar XML y generar
-Excel**; el proceso sigue en el servidor aunque cierres la pestaña.
+**Modo actual sin API SIRE:** selecciona fechas y carpeta de destino. Se crean
+subcarpetas por empresa/rango y por tipo/dirección/formato de comprobante, además de
+registros de ventas/compras, Diario, Mayor y estados financieros en Excel con
+fórmulas y dashboard editable. Todo se presenta como simulación para revisión.
+No necesita configuración de API ni contabiliza en la aplicación.
+Consulta [estructura y uso de la simulación](docs/simulacion.md).
+
+### Integración SIRE anterior (API opcional)
+
+El adaptador SIRE de la versión anterior permanece en el backend para futuras
+consultas, pero el botón actual ejecuta la simulación sin SIRE. La API anterior
+requiere cuentas configuradas y Client ID/Client Secret, además de SOL.
 
 El motor existente descarga FE, NC y ND emitidas/recibidas, importa XML sin duplicar,
 consulta propuestas RVIE/RCE por ticket, compara los documentos y prepara un XLSX

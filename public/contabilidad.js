@@ -786,7 +786,7 @@ async function loadAutomation(followRunning = true) {
     }
     f.elements.creditoFiscal.checked = cfg.reglas.creditoFiscal;
     f.elements.contabilizar.checked = cfg.reglas.contabilizar;
-    $("autoSettings").open = !cfg.reglas.cuentaVenta;
+    $("autoSettings").open = false;
   }
   $("sireConfigStatus").textContent = cfg.sireConfigurado
     ? "API SIRE configurada. Las claves guardadas no se muestran."
@@ -824,11 +824,22 @@ async function watchAutomation(cid, id) {
       [
         ["XML del rango", r.documentos ?? 0],
         ["Nuevas propuestas", r.propuestos ?? 0],
-        ["Contabilizados automáticamente", r.contabilizados ?? 0],
-        ["Coincidencias SIRE", r.coinciden ?? 0],
+        [
+          r.simulacion ? "PDF descargados" : "Contabilizados automáticamente",
+          r.simulacion ? r.pdf : (r.contabilizados ?? 0),
+        ],
         ["Observaciones", r.observaciones?.length ?? 0],
       ],
     );
+    if (r.simulacion) {
+      const notice = document.createElement("p");
+      notice.textContent = r.aviso;
+      notice.className = "error";
+      target.append(notice);
+      const location = document.createElement("p");
+      location.textContent = "Archivos guardados en: " + r.carpeta;
+      target.append(location);
+    }
     if (["completado", "con_observaciones"].includes(j.estado)) {
       const a = document.createElement("a");
       a.href = base + "/excel";
@@ -859,10 +870,16 @@ form("autoConfigForm", async (f) => {
 form("autoForm", async (f) => {
   const cid = $("cliente").value,
     data = fields(f);
-  data.usarSire = f.elements.usarSire.checked;
+  data.modo = "simulacion";
+  data.usarSire = false;
   const job = await request(endpoint("/automatizacion"), "POST", data);
   msg(
     "Proceso iniciado. Puedes seguir el avance y descargar el Excel al terminar.",
   );
   await watchAutomation(cid, job.id);
 });
+$("autoFolder").onclick = () =>
+  action(async () => {
+    const result = await request("/api/elegir-carpeta", "POST", {});
+    if (result.ruta) $("autoForm").elements.carpetaDestino.value = result.ruta;
+  });
