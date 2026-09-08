@@ -6,8 +6,9 @@ const { service } = require("./service");
 const { dashboard } = require("./crm");
 const { date, period, amount } = require("./money");
 const { buildSire } = require("./sire");
-function routes(db) {
+function routes(db, workflowOptions = {}) {
   const r = express.Router();
+  const workflow = require("./workflow").coordinator(db, workflowOptions);
   r.use((req, res, next) => {
     if (!req.session?.contadorId)
       return res.status(401).json({ mensaje: "Inicie sesión" });
@@ -72,6 +73,46 @@ function routes(db) {
     "/clientes/:id/cuentas",
     handle((req) => req.ct.cuentas()),
   );
+  r.get(
+    "/clientes/:id/automatizacion/config",
+    handle((req) => workflow.config(req.session.contadorId, req.ctId)),
+  );
+  r.put(
+    "/clientes/:id/automatizacion/config",
+    handle((req) => workflow.save(req.session.contadorId, req.ctId, req.body)),
+  );
+  r.post(
+    "/clientes/:id/automatizacion",
+    handle((req) => workflow.start(req.session.contadorId, req.ctId, req.body)),
+  );
+  r.get(
+    "/clientes/:id/automatizacion",
+    handle((req) => workflow.list(req.session.contadorId, req.ctId)),
+  );
+  r.get(
+    "/clientes/:id/automatizacion/:job",
+    handle((req) =>
+      workflow.read(req.session.contadorId, req.ctId, req.params.job),
+    ),
+  );
+  r.get("/clientes/:id/automatizacion/:job/excel", (req, res, next) => {
+    try {
+      const file = workflow.file(
+        req.session.contadorId,
+        req.ctId,
+        req.params.job,
+      );
+      res.download(
+        file,
+        "ContaFacil-" + req.ct.cliente.ruc + ".xlsx",
+        (error) => {
+          if (error && !res.headersSent) next(error);
+        },
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
   r.post(
     "/clientes/:id/cuentas",
     handle((req) => req.ct.cuenta(req.body)),
@@ -351,14 +392,12 @@ function routes(db) {
   r.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
     const known = err.status || err.code?.startsWith("SQLITE_CONSTRAINT");
-    res
-      .status(err.status || 400)
-      .json({
-        mensaje:
-          known && err.code
-            ? "Operación incompatible con los datos contables: " + err.message
-            : err.message || "No se pudo completar la operación",
-      });
+    res.status(err.status || 400).json({
+      mensaje:
+        known && err.code
+          ? "Operación incompatible con los datos contables: " + err.message
+          : err.message || "No se pudo completar la operación",
+    });
   });
   return r;
 }

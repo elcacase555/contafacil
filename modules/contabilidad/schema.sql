@@ -122,3 +122,17 @@ CREATE TRIGGER IF NOT EXISTS ct_auditoria_update BEFORE UPDATE ON ct_auditoria
  BEGIN SELECT RAISE(ABORT,'Auditoria inmutable'); END;
 CREATE TRIGGER IF NOT EXISTS ct_auditoria_delete BEFORE DELETE ON ct_auditoria
  BEGIN SELECT RAISE(ABORT,'Auditoria inmutable'); END;
+
+CREATE TABLE IF NOT EXISTS ct_automatizacion_config (
+ contador_id INTEGER NOT NULL, cliente_id INTEGER NOT NULL, reglas TEXT NOT NULL,
+ api_cifrada TEXT, PRIMARY KEY(contador_id,cliente_id),
+ FOREIGN KEY(contador_id,cliente_id) REFERENCES clientes_sunat(contador_id,id)
+);
+CREATE TABLE IF NOT EXISTS ct_trabajos (
+ id TEXT PRIMARY KEY, contador_id INTEGER NOT NULL, cliente_id INTEGER NOT NULL,
+ desde TEXT NOT NULL, hasta TEXT NOT NULL, estado TEXT NOT NULL,
+ progreso TEXT NOT NULL DEFAULT '', resultado TEXT, creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(contador_id,cliente_id) REFERENCES clientes_sunat(contador_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ct_un_trabajo_activo ON ct_trabajos(contador_id,cliente_id)
+ WHERE estado='procesando';

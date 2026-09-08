@@ -53,6 +53,29 @@ test("HTTP authentication, CSRF, tenant isolation and full posting flow", async 
     (await req("/clientes/1/asientos", "POST", {}, "1", "bad")).status,
     403,
   );
+  assert.equal(
+    (await req("/clientes/1/automatizacion", "POST", {}, "1", "bad")).status,
+    403,
+  );
+  assert.equal(
+    (await req("/clientes/1/automatizacion/config", "GET", undefined, "2"))
+      .status,
+    404,
+  );
+  db.prepare(
+    "INSERT INTO ct_trabajos(id,contador_id,cliente_id,desde,hasta,estado) VALUES('test-job',1,1,'2026-08-01','2026-08-31','completado')",
+  ).run();
+  assert.equal(
+    (
+      await req(
+        "/clientes/2/automatizacion/test-job/excel",
+        "GET",
+        undefined,
+        "2",
+      )
+    ).status,
+    404,
+  );
   const imported = await req(
     "/clientes/1/xml",
     "POST",
