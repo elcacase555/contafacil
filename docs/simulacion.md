@@ -41,6 +41,11 @@ comprobante y los informes se calculan únicamente desde los XML del trabajo.
 Si falla un formato o hay archivos inválidos, se informa; no se fabrica un PDF
 faltante ni se interpreta una descarga vacía como ausencia de operaciones.
 
+La lectura reconoce UTF-8, ISO-8859-1 (Latin-1), Windows-1252, ASCII y UTF-16
+según la declaración y marca de bytes del XML. No modifica los archivos originales
+ni reemplaza caracteres inválidos. Si no hay declaración, usa UTF-8 según XML;
+una codificación desconocida o contradictoria se informa para revisión.
+
 ## Archivos editables
 
 Los cinco libros son autónomos: cada uno conserva sus datos y hojas dependientes,

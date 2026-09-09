@@ -78,7 +78,7 @@ async function simulate({
       try {
         if ((await fs.stat(file)).size > 2 * 1024 * 1024)
           throw new Error("XML mayor a 2 MB");
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(
+        const text = require("./xml-encoding").decodeXml(
           await fs.readFile(file),
         );
         const d = parseUBL(text, empresa.ruc);

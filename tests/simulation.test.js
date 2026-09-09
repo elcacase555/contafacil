@@ -97,7 +97,14 @@ test("simulation without SIRE creates organized output, live formulas and native
         "Facturas",
         "Emitidas",
       );
-      await fs.writeFile(path.join(dir, "XML", "venta.xml"), fixture());
+      await fs.writeFile(
+        path.join(dir, "XML", "venta.xml"),
+        Buffer.from(
+          '<?xml version="1.0" encoding="ISO-8859-1"?>' +
+            fixture().replace("Proveedor SAC", "Muñoz y compañía"),
+          "latin1",
+        ),
+      );
       await fs.writeFile(path.join(dir, "PDF", "venta.pdf"), "%PDF-1.4 test");
       await fs.writeFile(
         path.join(
