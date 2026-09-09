@@ -10,6 +10,148 @@ const { coordinator } = require("../modules/contabilidad/workflow");
 const { simulationBook } = require("../modules/contabilidad/simulation-excel");
 const { parseUBL } = require("../modules/contabilidad/parser");
 const { fiscalKey } = require("../modules/contabilidad/conciliation");
+const { prepareExchange } = require("../modules/contabilidad/exchange-rate");
+const { invoiceBook } = require("../modules/contabilidad/simulation-excel");
+const { accountingFormat } = require("../modules/contabilidad/excel-format");
+
+test("USD XML feeds PEN registers, balanced journal and statements with accounting formats", async () => {
+  const { db, s } = setup();
+  try {
+    const docs = [];
+    for (const purchase of [false, true])
+      for (const [kind, number] of [
+        ["Invoice", "F001-1"],
+        ["CreditNote", "FC01-1"],
+        ["DebitNote", "FD01-1"],
+      ]) {
+        const d = parseUBL(
+          fixture({
+            kind,
+            number,
+            currency: "USD",
+            base: "1.00",
+            tax: "0.18",
+            total: "1.18",
+            supplier: purchase ? "20100000002" : "20100000001",
+            customer: purchase ? "20100000001" : "20100000002",
+          }),
+          "20100000001",
+        );
+        d.key = fiscalKey(d.emisor, d.tipo, d.numero);
+        d.archivo = number + ".xml";
+        docs.push(d);
+      }
+    await prepareExchange(docs, {
+      resolve: async (dates) =>
+        new Map(
+          dates.map((date) => [
+            date,
+            {
+              rate: 3.588,
+              fecha: date,
+              url: "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04640PD",
+              source: "SBS, serie BCRP PD04640PD",
+            },
+          ]),
+        ),
+    });
+    const buffer = await simulationBook({
+      empresa: s.cliente,
+      desde: "2026-08-01",
+      hasta: "2026-08-31",
+      docs,
+      accounts: s.cuentas(),
+      rules: { creditoFiscal: true },
+      issues: [],
+    });
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(buffer);
+    assert.equal(book.getWorksheet("Ajustes"), undefined);
+    const journal = book.getWorksheet("Diario");
+    assert.equal(journal.rowCount, 28);
+    assert.equal(journal.getCell("E8").result, journal.getCell("E12").result);
+    for (let row = 5; row < 29; row += 4) {
+      let debit = 0,
+        credit = 0;
+      for (let j = row; j < row + 4; j++) {
+        debit += journal.getCell("F" + j).result || 0;
+        credit += journal.getCell("G" + j).result || 0;
+      }
+      assert.ok(Math.abs(debit - credit) < 1e-8);
+    }
+    assert.equal(book.getWorksheet("XML").getCell("K5").value, 1.18);
+    assert.equal(book.getWorksheet("XML").getCell("Z5").result, 4.23);
+    assert.equal(book.getWorksheet("XML").getCell("AF5").result, -0.01);
+    assert.equal(
+      book.getWorksheet("Registro ventas").getCell("I6").result,
+      -4.23,
+    );
+    assert.equal(
+      book.getWorksheet("Registro ventas").getCell("P5").result,
+      4.23,
+    );
+    assert.equal(
+      book.getWorksheet("Registro compras").getCell("P5").result,
+      4.23,
+    );
+    assert.equal(
+      book.getWorksheet("Registro ventas").getCell("G5").numFmt,
+      accountingFormat(),
+    );
+    assert.equal(
+      book.getWorksheet("Registro ventas").getCell("M5").numFmt,
+      accountingFormat("USD"),
+    );
+    assert.equal(book.getWorksheet("Dashboard").getCell("B20").result, 0);
+    assert.equal(book.getWorksheet("Dashboard").getCell("B20").numFmt, "0");
+    const invoice = new ExcelJS.Workbook();
+    await invoice.xlsx.load(await invoiceBook(docs[0]));
+    assert.equal(
+      invoice.getWorksheet("Comprobante").getCell("C9").result,
+      4.23,
+    );
+    if (process.env.CT_FX_SAMPLE)
+      await fs.writeFile(process.env.CT_FX_SAMPLE, buffer);
+  } finally {
+    db.close();
+  }
+});
+
+test("missing official rate leaves PEN cells blank and marks incomplete reports", async () => {
+  const { db, s } = setup();
+  try {
+    const d = parseUBL(fixture({ currency: "USD" }), "20100000001");
+    d.key = fiscalKey(d.emisor, d.tipo, d.numero);
+    const issues = await prepareExchange([d], {
+      resolve: async () => new Map(),
+    });
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(
+      await simulationBook({
+        empresa: s.cliente,
+        desde: "2026-08-01",
+        hasta: "2026-08-31",
+        docs: [d],
+        accounts: s.cuentas(),
+        rules: {},
+        issues,
+      }),
+    );
+    assert.equal(book.getWorksheet("XML").getCell("AA5").value, null);
+    assert.ok(!book.getWorksheet("Registro ventas").getCell("I5").result);
+    assert.match(
+      book.getWorksheet("Registro ventas").getCell("N5").result,
+      /Pendiente/,
+    );
+    assert.match(
+      book.getWorksheet("Estado resultados").getCell("A3").result,
+      /INCOMPLETO/,
+    );
+    assert.equal(book.getWorksheet("Dashboard").getCell("B20").result, 1);
+  } finally {
+    db.close();
+  }
+});
 test("simulation signs reconcile invoices, credit and debit notes in both directions", async () => {
   const { db, s } = setup();
   try {
