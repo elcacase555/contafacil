@@ -40,31 +40,33 @@
         <h2>Tu contabilidad, desde los comprobantes</h2>
         <p>
           Elige las fechas. ContaFácil descargará facturas y notas de
-          crédito/débito emitidas y recibidas, consultará las propuestas SIRE y
-          preparará un Excel con los libros, estados y diferencias encontradas.
+          crédito/débito emitidas y recibidas en XML y PDF. A partir de los XML
+          preparará los Excel por comprobante, registros, libros y estados con
+          fórmulas. Este proceso es una simulación para revisión del contador y
+          no necesita API SIRE.
         </p>
         <form id="autoForm">
           <label>Desde<input name="desde" type="date" required /></label>
           <label>Hasta<input name="hasta" type="date" required /></label>
           <label
-            ><span>Fuentes oficiales</span
-            ><span
-              ><input name="usarSire" type="checkbox" checked /> Consultar y
-              conciliar RVIE y RCE del SIRE</span
-            ></label
-          >
+            >Carpeta de destino<input
+              name="carpetaDestino"
+              required
+              placeholder="D:\Contabilidad"
+          /></label>
+          <button id="autoFolder" type="button">Elegir carpeta</button>
           <button>Descargar XML y generar Excel</button>
         </form>
         <p id="autoStatus" role="status" aria-live="polite"></p>
         <div id="autoSummary"></div>
         <div id="autoJobs"></div>
         <details id="autoSettings">
-          <summary>Configuración de automatización de esta empresa</summary>
+          <summary>Cuentas propuestas (opcional)</summary>
           <p>
-            Guarda una vez las cuentas para operaciones homogéneas de esta
-            empresa. Las operaciones especiales y las diferencias quedan
-            observadas. Las notas y los borradores existentes no se contabilizan
-            automáticamente.
+            Puedes guardar cuentas para esta empresa. Si no las configuras se
+            proponen 70111 para ventas y 6011 para compras, sin crédito fiscal.
+            Revisa estas propuestas y corrígelas en Excel. La simulación no
+            contabiliza en la app.
           </p>
           <form id="autoConfigForm">
             <label
@@ -86,36 +88,35 @@
                 tienen derecho a crédito fiscal (regla revisada)</span
               ></label
             >
-            <label
-              ><span>Aprobación automática</span
-              ><span
-                ><input name="contabilizar" type="checkbox" /> Contabilizar
-                nuevas facturas simples en PEN que coincidan con SIRE, según
-                estas cuentas</span
-              ></label
-            >
-            <label
-              >Client ID de API SUNAT<input
-                name="clientId"
-                autocomplete="off"
-                maxlength="100"
-            /></label>
-            <label
-              >Client Secret de API SUNAT<input
-                name="clientSecret"
-                type="password"
-                autocomplete="new-password"
-                maxlength="1000"
-            /></label>
-            <p id="sireConfigStatus"></p>
+            <div hidden>
+              <label
+                ><span>Aprobación automática</span
+                ><span
+                  ><input name="contabilizar" type="checkbox" /> Contabilizar
+                  nuevas facturas simples en PEN que coincidan con SIRE, según
+                  estas cuentas</span
+                ></label
+              >
+              <label
+                >Client ID de API SUNAT<input
+                  name="clientId"
+                  autocomplete="off"
+                  maxlength="100"
+              /></label>
+              <label
+                >Client Secret de API SUNAT<input
+                  name="clientSecret"
+                  type="password"
+                  autocomplete="new-password"
+                  maxlength="1000"
+              /></label>
+              <p id="sireConfigStatus"></p>
+            </div>
             <button>Guardar configuración</button>
           </form>
           <p>
-            Las credenciales de API se crean en SOL, opción Credenciales de API
-            SUNAT, habilitando SIRE. Se guardan cifradas y se usan junto con el
-            usuario y clave SOL que ya tiene el cliente. Déjalas vacías para
-            conservar las existentes. Consultamos propuestas; no aceptamos
-            registros ni presentamos declaraciones.
+            Se utilizan las credenciales SOL ya guardadas en el cliente. La
+            carpeta pertenece al equipo donde se ejecuta ContaFácil.
           </p>
         </details>
       </section>

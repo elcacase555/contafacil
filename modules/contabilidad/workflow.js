@@ -140,6 +140,40 @@ function coordinator(db, dependencies = {}) {
         usuario: owner.usuario_sol,
         password: decrypt(owner.clave_sol_cifrada),
       };
+      if (options.modo === "simulacion") {
+        const result = await require("./simulation").simulate({
+          empresa: s.cliente,
+          desde: options.desde,
+          hasta: options.hasta,
+          months,
+          destination: options.carpetaDestino,
+          id,
+          credentials,
+          accounts: s.cuentas(),
+          rules,
+          progress,
+          download:
+            dependencies.downloadOrganized ||
+            require("../../scripts-sunat/sunat-motor").descargarOrganizado,
+        });
+        await fs.copyFile(
+          path.join(
+            result.carpeta,
+            "Estados financieros",
+            "Estados financieros.xlsx",
+          ),
+          path.join(dir, "Contabilidad.xlsx"),
+        );
+        db.prepare(
+          "UPDATE ct_trabajos SET estado=?,progreso=?,resultado=? WHERE id=?",
+        ).run(
+          result.observaciones.length ? "con_observaciones" : "completado",
+          result.aviso,
+          JSON.stringify(result),
+          id,
+        );
+        return;
+      }
       for (const pack of ["FE", "NC", "ND"]) {
         progress("Descargando " + pack + " emitidos y recibidos…");
         try {
@@ -358,9 +392,17 @@ function coordinator(db, dependencies = {}) {
       service(db, tenant, client);
       range(options.desde, options.hasta);
       const cfg = config(tenant, client);
-      if (!cfg.reglas.cuentaVenta || !cfg.reglas.cuentaCompra)
+      const simulation = options.modo === "simulacion";
+      if (
+        simulation &&
+        (typeof options.carpetaDestino !== "string" ||
+          !path.isAbsolute(options.carpetaDestino.trim()) ||
+          options.carpetaDestino.includes("\0"))
+      )
+        throw new Error("Seleccione una carpeta de destino absoluta");
+      if (!simulation && (!cfg.reglas.cuentaVenta || !cfg.reglas.cuentaCompra))
         throw new Error("Guarde primero las reglas de la empresa");
-      if (options.usarSire && !cfg.sireConfigurado)
+      if (!simulation && options.usarSire && !cfg.sireConfigurado)
         throw new Error(
           "Configure las credenciales API SIRE o desactive su consulta",
         );
@@ -376,6 +418,8 @@ function coordinator(db, dependencies = {}) {
         desde: options.desde,
         hasta: options.hasta,
         usarSire: options.usarSire === true,
+        modo: simulation ? "simulacion" : "sire",
+        carpetaDestino: simulation ? options.carpetaDestino.trim() : undefined,
       }).finally(() => active.delete(id));
       active.set(id, promise);
       return { id };
