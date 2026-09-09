@@ -53,7 +53,7 @@ function button(label, fn) {
       try {
         await fn();
       } finally {
-        b.disabled = false;
+        b.disabled = b.dataset.running === "1";
       }
     });
   return b;
@@ -113,6 +113,10 @@ function input(type, value = "") {
 }
 function switchTab(name) {
   tab = name;
+  document.body.classList.toggle("simple-mode", name === "automatizar");
+  $("pageTitle").textContent =
+    name === "automatizar" ? "Crear TODO" : "Revisión contable";
+  $("manualTools").open = name !== "automatizar";
   document
     .querySelectorAll("section.panel")
     .forEach((s) => (s.hidden = s.id !== name));
@@ -123,6 +127,12 @@ function switchTab(name) {
 document
   .querySelectorAll("[data-tab]")
   .forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
+$("manualSettings").append($("autoSettings"));
+$("manualTools").ontoggle = () => {
+  if ($("manualTools").open && tab === "automatizar") switchTab("crm");
+  else if (!$("manualTools").open && tab !== "automatizar")
+    switchTab("automatizar");
+};
 function resetEntry() {
   editId = null;
   $("editorTitulo").textContent = "Asiento manual / saldos de apertura";
@@ -603,7 +613,7 @@ function form(id, fn) {
         await fn(e.target);
         await refresh();
       } finally {
-        b.disabled = false;
+        b.disabled = b.dataset.running === "1";
       }
     });
   };
@@ -803,6 +813,9 @@ async function loadAutomation(followRunning = true) {
     ]),
   );
   const running = jobs.find((j) => j.estado === "procesando");
+  $("autoHistory").hidden = !jobs.length;
+  $("autoStart").disabled = !!running;
+  $("autoStart").dataset.running = running ? "1" : "0";
   if (followRunning && running && autoWatching !== running.id)
     await watchAutomation(cid, running.id);
 }
@@ -812,8 +825,9 @@ async function watchAutomation(cid, id) {
   const base = api + "/clientes/" + cid + "/automatizacion/" + id,
     j = await request(base);
   if ($("cliente").value !== cid || autoWatching !== id) return;
-  $("autoStatus").textContent =
-    j.estado.replaceAll("_", " ") + " · " + j.progreso;
+  $("autoStatus").textContent = j.resultado?.simulacion
+    ? "Terminado. Tus archivos están listos."
+    : j.progreso;
   const target = $("autoSummary");
   target.replaceChildren();
   if (j.resultado) {
@@ -846,9 +860,14 @@ async function watchAutomation(cid, id) {
       a.textContent = "Descargar libros y estados en Excel";
       target.append(a);
     }
-    const details = document.createElement("div");
+    const details = document.createElement("details"),
+      summary = document.createElement("summary"),
+      detailTable = document.createElement("div");
+    summary.textContent =
+      "Ver observaciones (" + (r.observaciones || []).length + ")";
+    details.append(summary, detailTable);
     table(
-      details,
+      detailTable,
       ["Etapa", "Documento", "Observación"],
       (r.observaciones || []).map((o) => [o.etapa, o.documento, o.mensaje]),
     );

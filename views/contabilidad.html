@@ -3,49 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ContaFácil · Contabilidad</title>
+    <title>ContaFácil · Crear TODO</title>
     <link rel="stylesheet" href="/contabilidad.css" />
     <script src="/contabilidad.js" defer></script>
   </head>
-  <body>
+  <body class="simple-mode">
     <header>
-      <a href="/">ContaFácil</a><span>CONTABILIDAD & CRM</span
+      <a href="/">ContaFácil</a><span>CREAR TODO</span
       ><a href="/">Volver a clientes</a>
     </header>
     <main>
       <div class="intro">
         <div>
-          <p class="eyebrow">TU ESTUDIO CONTABLE</p>
-          <h1>De comprobantes a decisiones.</h1>
-          <p>Revisa, contabiliza y sigue las obligaciones de cada cliente.</p>
+          <h1 id="pageTitle">Crear TODO</h1>
+          <p>Elige las fechas y la carpeta. ContaFácil se encarga del resto.</p>
         </div>
         <div class="filters">
-          <label>Empresa<select id="cliente"></select></label
-          ><label>Periodo<input id="periodo" type="month" /></label
-          ><button id="actualizar">Actualizar</button>
+          <label>Empresa<select id="cliente"></select></label>
         </div>
       </div>
       <p id="mensaje" role="status" aria-live="polite"></p>
-      <nav aria-label="Módulos">
-        <button data-tab="automatizar">Descargar y generar Excel</button>
-        <button data-tab="crm">Clientes y alertas</button
-        ><button data-tab="xml">Comprobantes XML</button
-        ><button data-tab="diario">Libro Diario</button
-        ><button data-tab="registros">Ventas / Compras</button
-        ><button data-tab="estados">Mayor y estados</button
-        ><button data-tab="renta">DJ anual</button
-        ><button data-tab="config">Plan y periodos</button>
-      </nav>
       <section id="automatizar" class="panel" hidden>
-        <h2>Tu contabilidad, desde los comprobantes</h2>
-        <p>
-          Elige las fechas. ContaFácil descargará facturas y notas de
-          crédito/débito emitidas y recibidas en XML y PDF. A partir de los XML
-          preparará los Excel por comprobante, registros, libros y estados con
-          fórmulas. Este proceso es una simulación para revisión del contador y
-          no necesita API SIRE.
-        </p>
-        <form id="autoForm">
+        <form id="autoForm" aria-label="Crear todo">
           <label>Desde<input name="desde" type="date" required /></label>
           <label>Hasta<input name="hasta" type="date" required /></label>
           <label
@@ -55,11 +34,18 @@
               placeholder="D:\Contabilidad"
           /></label>
           <button id="autoFolder" type="button">Elegir carpeta</button>
-          <button>Descargar XML y generar Excel</button>
+          <button id="autoStart" type="submit">Iniciar</button>
         </form>
+        <p class="output-description">
+          Incluye comprobantes XML, PDF y Excel; registros de compras y ventas;
+          Diario, Mayor, balance general y resultados con fórmulas y dashboard.
+        </p>
         <p id="autoStatus" role="status" aria-live="polite"></p>
         <div id="autoSummary"></div>
-        <div id="autoJobs"></div>
+        <details id="autoHistory" hidden>
+          <summary>Trabajos anteriores</summary>
+          <div id="autoJobs"></div>
+        </details>
         <details id="autoSettings">
           <summary>Cuentas propuestas (opcional)</summary>
           <p>
@@ -120,236 +106,262 @@
           </p>
         </details>
       </section>
-      <section id="crm" class="panel">
-        <h2>Clientes y próximos vencimientos</h2>
-        <p>
-          Obligaciones mensuales 2026. Una fecha transcurrida no significa que
-          la obligación esté pendiente: registra el seguimiento en tareas.
-          Revisa prórrogas aplicables.
-        </p>
-        <div id="clientesCrm"></div>
-        <h3>Nueva tarea para la empresa seleccionada</h3>
-        <form id="tareaForm">
-          <label>Tarea<input name="titulo" maxlength="200" required /></label
-          ><label>Vencimiento<input name="vence" type="date" required /></label
-          ><label>Notas<input name="notas" maxlength="2000" /></label
-          ><button>Guardar tarea</button>
-        </form>
-        <div id="tareas"></div>
-        <details>
-          <summary>Condición y vencimiento especial de la empresa</summary>
-          <form id="perfilForm">
-            <label
-              >Condición<select name="grupo">
-                <option value="regular">Regular</option>
-                <option value="buen_contribuyente">
-                  Buen contribuyente / UESP
-                </option>
-              </select></label
-            ><button>Guardar condición</button>
-          </form>
-          <form id="vencimientoForm">
-            <label
-              >Fecha especial<input name="fecha" type="date" required /></label
+      <details id="manualTools">
+        <summary>Herramientas de revisión</summary>
+        <div class="filters">
+          <label>Periodo de revisión<input id="periodo" type="month" /></label
+          ><button id="actualizar">Actualizar revisión</button>
+        </div>
+        <nav aria-label="Módulos de revisión">
+          <button data-tab="automatizar">Volver a Crear TODO</button>
+          <button data-tab="crm">Clientes y alertas</button>
+          <button data-tab="xml">Comprobantes XML</button>
+          <button data-tab="diario">Libro Diario</button>
+          <button data-tab="registros">Ventas / Compras</button>
+          <button data-tab="estados">Mayor y estados</button>
+          <button data-tab="renta">DJ anual</button>
+          <button data-tab="config">Plan y periodos</button>
+        </nav>
+        <div id="manualSettings"></div>
+        <section id="crm" class="panel">
+          <h2>Clientes y próximos vencimientos</h2>
+          <p>
+            Obligaciones mensuales 2026. Una fecha transcurrida no significa que
+            la obligación esté pendiente: registra el seguimiento en tareas.
+            Revisa prórrogas aplicables.
+          </p>
+          <div id="clientesCrm"></div>
+          <h3>Nueva tarea para la empresa seleccionada</h3>
+          <form id="tareaForm">
+            <label>Tarea<input name="titulo" maxlength="200" required /></label
             ><label
-              >Fuente SUNAT / gob.pe<input
-                name="fuente"
-                type="url"
-                required /></label
-            ><label>Motivo / resolución<input name="motivo" required /></label
-            ><button>Guardar para el periodo</button>
+              >Vencimiento<input name="vence" type="date" required /></label
+            ><label>Notas<input name="notas" maxlength="2000" /></label
+            ><button>Guardar tarea</button>
           </form>
-        </details>
-      </section>
-      <section id="xml" class="panel" hidden>
-        <h2>Importar comprobantes</h2>
-        <p>
-          Selecciona los XML descargados por ContaFácil. Se reconoce al emisor o
-          receptor por el RUC del cliente. Los documentos duplicados no vuelven
-          a registrarse.
-        </p>
-        <form id="xmlForm">
-          <label
-            >Archivos XML (máximo 100 por lote, 2 MB por archivo)<input
-              type="file"
-              id="archivos"
-              accept=".xml,text/xml,application/xml"
-              multiple
-              required /></label
-          ><button>Importar XML</button>
-        </form>
-        <div id="importacion"></div>
-        <p>
-          Para proponer un asiento, elige la naturaleza de la operación. Revisa
-          crédito fiscal, motivo de las notas y cuentas antes de aprobar.
-          Inventarios y costo de ventas requieren sus asientos adicionales.
-        </p>
-        <div id="comprobantes"></div>
-      </section>
-      <section id="diario" class="panel" hidden>
-        <h2>Libro Diario</h2>
-        <p>
-          Los borradores pueden editarse. Contabilizar verifica la partida
-          doble. Un asiento contabilizado se corrige mediante reversión.
-        </p>
-        <div id="asientos"></div>
-        <h3 id="editorTitulo">Asiento manual / saldos de apertura</h3>
-        <form id="asientoForm">
-          <label>Fecha<input name="fecha" type="date" required /></label
-          ><label>Glosa<input name="glosa" maxlength="500" required /></label
-          ><label
-            >Clase<select name="clase">
-              <option value="operacion">Operación / ajuste</option>
-              <option value="apertura">Apertura</option>
-              <option value="cierre">Cierre</option>
-            </select></label
-          >
-          <div id="lineas"></div>
-          <button type="button" id="agregarLinea">Añadir cuenta</button
-          ><button>Guardar borrador</button
-          ><button type="button" id="nuevoAsiento">Nuevo</button>
-        </form>
-      </section>
-      <section id="registros" class="panel" hidden>
-        <h2>Registro de ventas y compras</h2>
-        <p>
-          Periodo de anotación independiente de la fecha de emisión. La revisión
-          fiscal y el estado SUNAT se registran por el contador; leer un XML no
-          verifica su aceptación.
-        </p>
-        <div class="actions">
-          <button data-export="ventas">Descargar ventas CSV</button
-          ><button data-export="compras">Descargar compras CSV</button>
-        </div>
-        <p class="notice">
-          Los CSV son papeles de trabajo. Consulta la exportación SIRE
-          disponible abajo y sus validaciones antes de usar PVSIRE.
-        </p>
-        <div id="listaRegistros"></div>
-        <div id="sirePanel"></div>
-      </section>
-      <section id="estados" class="panel" hidden>
-        <h2>Estados financieros preliminares</h2>
-        <label>Fecha de corte<input type="date" id="corte" /></label>
-        <div id="indicadores" class="cards"></div>
-        <p>
-          Incluyen solo asientos contabilizados. La integridad depende de
-          registrar apertura, existencias, bancos, planillas, depreciaciones y
-          ajustes. La utilidad pendiente de cierre se muestra por separado.
-        </p>
-        <div class="actions">
-          <button data-export="balance">Descargar balance</button
-          ><button data-export="mayor">Descargar mayor</button>
-        </div>
-        <h3>Estado de situación financiera</h3>
-        <div id="situacion"></div>
-        <h3>Estado de resultados</h3>
-        <div id="resultados"></div>
-        <h3>Balance de comprobación</h3>
-        <div id="balance"></div>
-        <h3>Libro Mayor</h3>
-        <div id="mayor"></div>
-      </section>
-      <section id="renta" class="panel" hidden>
-        <h2>Borrador de DJ anual</h2>
-        <p>
-          Parte del resultado contable antes de impuesto. Es un papel de
-          trabajo; no presenta el Formulario 710. Verifica las tasas y la UIT
-          del ejercicio, la elegibilidad del régimen y el límite de pérdidas.
-        </p>
-        <form id="rentaForm">
-          <label
-            >Ejercicio<input
-              name="ejercicio"
-              type="number"
-              min="2020"
-              max="2099"
-              required /></label
-          ><label
-            >Régimen<select name="regimen">
-              <option value="RG">General</option>
-              <option value="RMT">MYPE Tributario</option>
-            </select></label
-          ><label
-            >UIT del ejercicio (S/)<input
-              name="uit"
-              type="number"
-              step="0.01"
-              min="0"
-              value="0"
-              required /></label
-          ><label
-            >Pérdidas compensables validadas (S/)<input
-              name="perdidas"
-              type="number"
-              step="0.01"
-              min="0"
-              value="0" /></label
-          ><label
-            >Sistema y sustento de pérdidas<input
-              name="fundamentoPerdidas" /></label
-          ><label
-            >Pagos a cuenta (S/)<input
-              name="pagos"
-              type="number"
-              step="0.01"
-              min="0"
-              value="0" /></label
-          ><label
-            >Otros créditos aplicables (S/)<input
-              name="creditos"
-              type="number"
-              step="0.01"
-              min="0"
-              value="0" /></label
-          ><label
-            >Fuente normativa del ejercicio<input
-              name="fuenteNormativa"
-              type="url"
-              value="https://renta.sunat.gob.pe/empresas/tasas-de-impuesto"
-              required
-          /></label>
-          <div id="ajustes"></div>
-          <button type="button" id="agregarAjuste">
-            Añadir adición / deducción</button
-          ><button>Calcular y guardar borrador</button>
-        </form>
-        <div id="resultadoRenta"></div>
-        <h3>Borradores guardados</h3>
-        <div id="rentasGuardadas"></div>
-      </section>
-      <section id="config" class="panel" hidden>
-        <h2>Plan contable y periodos</h2>
-        <p>
-          Catálogo inicial de cuentas PCGE 2019. Completa las cuentas y rubros
-          según las operaciones del cliente.
-        </p>
-        <div id="cuentas"></div>
-        <form id="cuentaForm">
-          <label
-            >Código<input name="codigo" pattern="[0-9]{2,10}" required /></label
-          ><label>Nombre<input name="nombre" required /></label
-          ><label
-            >Clase<select name="clase">
-              <option value="activo">Activo</option>
-              <option value="pasivo">Pasivo</option>
-              <option value="patrimonio">Patrimonio</option>
-              <option value="ingreso">Ingreso</option>
-              <option value="gasto">Gasto</option>
-              <option value="control">Control</option>
-            </select></label
-          ><label>Rubro financiero<input name="rubro" required /></label
-          ><button>Añadir cuenta</button>
-        </form>
-        <h3>Periodo seleccionado</h3>
-        <div class="actions">
-          <button id="cerrarPeriodo">Cerrar periodo</button
-          ><button id="abrirPeriodo">Reabrir periodo</button>
-        </div>
-        <div id="periodos"></div>
-        <h3>Historial</h3>
-        <div id="auditoria"></div>
-      </section>
+          <div id="tareas"></div>
+          <details>
+            <summary>Condición y vencimiento especial de la empresa</summary>
+            <form id="perfilForm">
+              <label
+                >Condición<select name="grupo">
+                  <option value="regular">Regular</option>
+                  <option value="buen_contribuyente">
+                    Buen contribuyente / UESP
+                  </option>
+                </select></label
+              ><button>Guardar condición</button>
+            </form>
+            <form id="vencimientoForm">
+              <label
+                >Fecha especial<input
+                  name="fecha"
+                  type="date"
+                  required /></label
+              ><label
+                >Fuente SUNAT / gob.pe<input
+                  name="fuente"
+                  type="url"
+                  required /></label
+              ><label>Motivo / resolución<input name="motivo" required /></label
+              ><button>Guardar para el periodo</button>
+            </form>
+          </details>
+        </section>
+        <section id="xml" class="panel" hidden>
+          <h2>Importar comprobantes</h2>
+          <p>
+            Selecciona los XML descargados por ContaFácil. Se reconoce al emisor
+            o receptor por el RUC del cliente. Los documentos duplicados no
+            vuelven a registrarse.
+          </p>
+          <form id="xmlForm">
+            <label
+              >Archivos XML (máximo 100 por lote, 2 MB por archivo)<input
+                type="file"
+                id="archivos"
+                accept=".xml,text/xml,application/xml"
+                multiple
+                required /></label
+            ><button>Importar XML</button>
+          </form>
+          <div id="importacion"></div>
+          <p>
+            Para proponer un asiento, elige la naturaleza de la operación.
+            Revisa crédito fiscal, motivo de las notas y cuentas antes de
+            aprobar. Inventarios y costo de ventas requieren sus asientos
+            adicionales.
+          </p>
+          <div id="comprobantes"></div>
+        </section>
+        <section id="diario" class="panel" hidden>
+          <h2>Libro Diario</h2>
+          <p>
+            Los borradores pueden editarse. Contabilizar verifica la partida
+            doble. Un asiento contabilizado se corrige mediante reversión.
+          </p>
+          <div id="asientos"></div>
+          <h3 id="editorTitulo">Asiento manual / saldos de apertura</h3>
+          <form id="asientoForm">
+            <label>Fecha<input name="fecha" type="date" required /></label
+            ><label>Glosa<input name="glosa" maxlength="500" required /></label
+            ><label
+              >Clase<select name="clase">
+                <option value="operacion">Operación / ajuste</option>
+                <option value="apertura">Apertura</option>
+                <option value="cierre">Cierre</option>
+              </select></label
+            >
+            <div id="lineas"></div>
+            <button type="button" id="agregarLinea">Añadir cuenta</button
+            ><button>Guardar borrador</button
+            ><button type="button" id="nuevoAsiento">Nuevo</button>
+          </form>
+        </section>
+        <section id="registros" class="panel" hidden>
+          <h2>Registro de ventas y compras</h2>
+          <p>
+            Periodo de anotación independiente de la fecha de emisión. La
+            revisión fiscal y el estado SUNAT se registran por el contador; leer
+            un XML no verifica su aceptación.
+          </p>
+          <div class="actions">
+            <button data-export="ventas">Descargar ventas CSV</button
+            ><button data-export="compras">Descargar compras CSV</button>
+          </div>
+          <p class="notice">
+            Los CSV son papeles de trabajo. Consulta la exportación SIRE
+            disponible abajo y sus validaciones antes de usar PVSIRE.
+          </p>
+          <div id="listaRegistros"></div>
+          <div id="sirePanel"></div>
+        </section>
+        <section id="estados" class="panel" hidden>
+          <h2>Estados financieros preliminares</h2>
+          <label>Fecha de corte<input type="date" id="corte" /></label>
+          <div id="indicadores" class="cards"></div>
+          <p>
+            Incluyen solo asientos contabilizados. La integridad depende de
+            registrar apertura, existencias, bancos, planillas, depreciaciones y
+            ajustes. La utilidad pendiente de cierre se muestra por separado.
+          </p>
+          <div class="actions">
+            <button data-export="balance">Descargar balance</button
+            ><button data-export="mayor">Descargar mayor</button>
+          </div>
+          <h3>Estado de situación financiera</h3>
+          <div id="situacion"></div>
+          <h3>Estado de resultados</h3>
+          <div id="resultados"></div>
+          <h3>Balance de comprobación</h3>
+          <div id="balance"></div>
+          <h3>Libro Mayor</h3>
+          <div id="mayor"></div>
+        </section>
+        <section id="renta" class="panel" hidden>
+          <h2>Borrador de DJ anual</h2>
+          <p>
+            Parte del resultado contable antes de impuesto. Es un papel de
+            trabajo; no presenta el Formulario 710. Verifica las tasas y la UIT
+            del ejercicio, la elegibilidad del régimen y el límite de pérdidas.
+          </p>
+          <form id="rentaForm">
+            <label
+              >Ejercicio<input
+                name="ejercicio"
+                type="number"
+                min="2020"
+                max="2099"
+                required /></label
+            ><label
+              >Régimen<select name="regimen">
+                <option value="RG">General</option>
+                <option value="RMT">MYPE Tributario</option>
+              </select></label
+            ><label
+              >UIT del ejercicio (S/)<input
+                name="uit"
+                type="number"
+                step="0.01"
+                min="0"
+                value="0"
+                required /></label
+            ><label
+              >Pérdidas compensables validadas (S/)<input
+                name="perdidas"
+                type="number"
+                step="0.01"
+                min="0"
+                value="0" /></label
+            ><label
+              >Sistema y sustento de pérdidas<input
+                name="fundamentoPerdidas" /></label
+            ><label
+              >Pagos a cuenta (S/)<input
+                name="pagos"
+                type="number"
+                step="0.01"
+                min="0"
+                value="0" /></label
+            ><label
+              >Otros créditos aplicables (S/)<input
+                name="creditos"
+                type="number"
+                step="0.01"
+                min="0"
+                value="0" /></label
+            ><label
+              >Fuente normativa del ejercicio<input
+                name="fuenteNormativa"
+                type="url"
+                value="https://renta.sunat.gob.pe/empresas/tasas-de-impuesto"
+                required
+            /></label>
+            <div id="ajustes"></div>
+            <button type="button" id="agregarAjuste">
+              Añadir adición / deducción</button
+            ><button>Calcular y guardar borrador</button>
+          </form>
+          <div id="resultadoRenta"></div>
+          <h3>Borradores guardados</h3>
+          <div id="rentasGuardadas"></div>
+        </section>
+        <section id="config" class="panel" hidden>
+          <h2>Plan contable y periodos</h2>
+          <p>
+            Catálogo inicial de cuentas PCGE 2019. Completa las cuentas y rubros
+            según las operaciones del cliente.
+          </p>
+          <div id="cuentas"></div>
+          <form id="cuentaForm">
+            <label
+              >Código<input
+                name="codigo"
+                pattern="[0-9]{2,10}"
+                required /></label
+            ><label>Nombre<input name="nombre" required /></label
+            ><label
+              >Clase<select name="clase">
+                <option value="activo">Activo</option>
+                <option value="pasivo">Pasivo</option>
+                <option value="patrimonio">Patrimonio</option>
+                <option value="ingreso">Ingreso</option>
+                <option value="gasto">Gasto</option>
+                <option value="control">Control</option>
+              </select></label
+            ><label>Rubro financiero<input name="rubro" required /></label
+            ><button>Añadir cuenta</button>
+          </form>
+          <h3>Periodo seleccionado</h3>
+          <div class="actions">
+            <button id="cerrarPeriodo">Cerrar periodo</button
+            ><button id="abrirPeriodo">Reabrir periodo</button>
+          </div>
+          <div id="periodos"></div>
+          <h3>Historial</h3>
+          <div id="auditoria"></div>
+        </section>
+      </details>
     </main>
     <footer>
       ContaFácil · Contabilidad por empresa · Moneda funcional: soles
