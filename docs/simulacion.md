@@ -1,7 +1,10 @@
 # Simulación contable desde XML, sin API SIRE
 
-En Contabilidad y CRM, pestaña Descargar y generar Excel, elegir empresa, Desde,
-Hasta y carpeta. El botón Elegir carpeta usa el selector existente de Windows;
+En **Crear TODO**, elegir empresa, Desde, Hasta y carpeta, y pulsar **Iniciar**.
+Al entrar desde un cliente, su empresa queda seleccionada. La revisión manual,
+cuentas y periodos están en **Herramientas de revisión**, un apartado secundario
+que no hace falta abrir para generar los archivos.
+El botón Elegir carpeta usa el selector existente de Windows;
 también admite escribir una ruta absoluta existente. La ruta pertenece al equipo
 que ejecuta ContaFácil. Las credenciales SOL del cliente siguen siendo necesarias
 para descargar del portal. No requiere credenciales de API SIRE.

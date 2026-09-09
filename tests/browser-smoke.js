@@ -68,6 +68,16 @@ const fs = require("fs/promises"),
     await page.goto(
       "http://127.0.0.1:" + server.address().port + "/contabilidad",
     );
+    await page.locator("#autoForm").waitFor();
+    assert.equal(await page.locator("#pageTitle").innerText(), "Crear TODO");
+    assert.equal(await page.locator("#periodo").isVisible(), false);
+    assert.equal(await page.locator("#autoSettings").isVisible(), false);
+    if (process.env.CT_SIMPLE_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.CT_SIMPLE_SCREENSHOT,
+        fullPage: true,
+      });
+    await page.locator("#manualTools > summary").click();
     await page.locator('[data-tab="crm"]').click();
     await page.waitForSelector("#clientesCrm table");
     await page.locator("#periodo").fill("2026-08");
@@ -128,25 +138,12 @@ const fs = require("fs/promises"),
       /Todavía no hay registros/,
     );
     await page.locator('[data-tab="automatizar"]').click();
-    await page.locator("#autoSettings summary").click();
-    await page
-      .locator('#autoConfigForm select[name="cuentaVenta"]')
-      .selectOption("70111");
-    await page
-      .locator('#autoConfigForm select[name="cuentaCompra"]')
-      .selectOption("6399");
-    await page
-      .getByRole("button", { name: "Guardar configuración", exact: true })
-      .click();
-    await page
-      .getByText("Configuración guardada para esta empresa.", { exact: true })
-      .waitFor();
     await page.locator('#autoForm input[name="desde"]').fill("2026-08-01");
     await page.locator('#autoForm input[name="hasta"]').fill("2026-08-10");
     await page.locator('#autoForm input[name="carpetaDestino"]').fill(root);
     await page
       .getByRole("button", {
-        name: "Descargar XML y generar Excel",
+        name: "Iniciar",
         exact: true,
       })
       .click();
@@ -160,10 +157,7 @@ const fs = require("fs/promises"),
     ]);
     assert.equal(await download.failure(), null);
     assert.match(download.suggestedFilename(), /20100000003.*xlsx/);
-    assert.match(
-      await page.locator("#autoStatus").innerText(),
-      /con observaciones/,
-    );
+    assert.match(await page.locator("#autoStatus").innerText(), /Terminado/);
     if (process.env.CT_SCREENSHOT)
       await page.screenshot({
         path: process.env.CT_SCREENSHOT,
@@ -171,6 +165,7 @@ const fs = require("fs/promises"),
       });
     await page.reload();
     await page.locator("#cliente").selectOption("3");
+    await page.locator("#autoHistory > summary").click();
     await page
       .locator("#autoJobs")
       .getByRole("button", { name: "Ver resultado" })

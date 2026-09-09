@@ -6,6 +6,76 @@
   color: #24372f;
   background: #f3f4ef;
 }
+[hidden] {
+  display: none !important;
+}
+.simple-mode main {
+  max-width: 900px;
+}
+.simple-mode .intro {
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+.simple-mode h1 {
+  font-family: inherit;
+  font-size: 32px;
+  font-weight: 700;
+}
+.simple-mode .intro .filters {
+  min-width: 230px;
+}
+#autoForm {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  gap: 20px 16px;
+}
+#autoForm label {
+  min-width: 0;
+  font-size: 14px;
+}
+#autoForm label:nth-child(3) {
+  grid-column: 1 / -1;
+}
+#autoFolder {
+  justify-self: start;
+  background: white;
+  color: #176446;
+}
+#autoStart {
+  min-width: 170px;
+  justify-self: end;
+  font-size: 17px;
+  font-weight: 650;
+}
+.output-description {
+  font-size: 13px;
+  border-top: 1px solid #e3e9e3;
+  padding-top: 20px;
+  margin-top: 24px;
+}
+#manualTools {
+  margin-top: 20px;
+}
+#manualTools > summary {
+  font-size: 13px;
+  color: #5e6d64;
+  font-weight: 400;
+}
+#manualTools .filters {
+  margin-top: 20px;
+}
+@media (max-width: 600px) {
+  .simple-mode .intro {
+    display: block;
+  }
+  #autoStart {
+    min-width: 0;
+    width: 100%;
+  }
+}
 * {
   box-sizing: border-box;
 }
