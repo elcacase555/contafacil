@@ -126,10 +126,14 @@ function coordinator(db, dependencies = {}) {
       issues = [],
       sire = [],
       available = [];
-    const progress = (message) =>
-      db
-        .prepare("UPDATE ct_trabajos SET progreso=? WHERE id=?")
-        .run(String(message).slice(0, 600), id);
+    let stage = "Preparando el trabajo";
+    const progress = (message) => {
+      stage = String(message).slice(0, 600);
+      db.prepare("UPDATE ct_trabajos SET progreso=? WHERE id=?").run(
+        String(message).slice(0, 600),
+        id,
+      );
+    };
     try {
       await fs.mkdir(dir, { recursive: true });
       const owner = db
@@ -373,14 +377,41 @@ function coordinator(db, dependencies = {}) {
         id,
       );
     } catch (e) {
+      const causes = {
+        ENOENT:
+          "No se encontró una carpeta o archivo necesario. Compruebe la carpeta de destino.",
+        EACCES:
+          "El programa no tiene permiso para escribir en la carpeta de destino.",
+        EPERM:
+          "Windows impidió acceder a un archivo. Cierre los Excel abiertos y compruebe los permisos.",
+        EBUSY:
+          "Un archivo está ocupado. Cierre los Excel abiertos y vuelva a intentar.",
+        ENOSPC: "No queda espacio suficiente en el disco de destino.",
+        EEXIST:
+          "La carpeta de este trabajo ya existe. Inicie un nuevo trabajo.",
+      };
+      const cause =
+        causes[e.code] ||
+        (e.message === "Número fiscal inválido"
+          ? "Un comprobante tiene una serie o número que no se pudo interpretar."
+          : "Ocurrió un error interno. Consulte la referencia de diagnóstico en la consola del programa.");
+      // Preserve the failure location without logging XML contents, SOL credentials or request bodies.
+      console.error("[ContaFácil] Trabajo fallido", id, {
+        tipo: e.name,
+        codigo: Object.hasOwn(causes, e.code) ? e.code : "interno",
+        ubicaciones: String(e.stack || "")
+          .split("\n")
+          .slice(1, 7),
+      });
       db.prepare(
         "UPDATE ct_trabajos SET estado='error',progreso=?,resultado=? WHERE id=?",
       ).run(
-        "No se completó el trabajo. Los documentos importados se conservan.",
+        "No se completó el trabajo. " + cause,
         JSON.stringify({
           observaciones: issues,
-          error:
-            "Revise configuración, periodos y disponibilidad del motor. No se generó un archivo final.",
+          error: cause,
+          etapa: stage,
+          referencia: id,
         }),
         id,
       );

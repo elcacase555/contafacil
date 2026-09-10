@@ -832,6 +832,18 @@ async function watchAutomation(cid, id) {
   target.replaceChildren();
   if (j.resultado) {
     const r = j.resultado;
+    if (j.estado === "error") {
+      const message = document.createElement("p");
+      message.className = "error";
+      message.textContent = [
+        r.error,
+        r.etapa ? "Última etapa: " + r.etapa : "",
+        r.referencia ? "Referencia: " + r.referencia : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      target.append(message);
+    }
     table(
       target,
       ["Concepto", "Cantidad"],

@@ -187,13 +187,18 @@ async function prepareExchange(
         continue;
       }
       const ref = d.references[0];
-      const original = originalDocs.get(
-        fiscalKey(d.emisor, ref.tipo, ref.numero),
-      );
-      if (
-        originalDocs.has(fiscalKey(d.emisor, ref.tipo, ref.numero)) &&
-        !original
-      ) {
+      let referenceKey;
+      try {
+        referenceKey = fiscalKey(d.emisor, ref.tipo, ref.numero);
+      } catch {
+        fail(
+          d,
+          "Conversión pendiente: la referencia de la nota no contiene una serie y número válidos.",
+        );
+        continue;
+      }
+      const original = originalDocs.get(referenceKey);
+      if (originalDocs.has(referenceKey) && !original) {
         fail(
           d,
           "Conversión pendiente: existen XML distintos para la factura original.",

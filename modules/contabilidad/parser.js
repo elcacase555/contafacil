@@ -94,7 +94,11 @@ function parseUBL(xml, ruc) {
         : "08";
   if (!["01", "03", "07", "08"].includes(tipo))
     throw new Error("Tipo de comprobante no soportado");
-  const numero = text(d["cbc:ID"]);
+  const normalizeNumber = (v) =>
+    text(v)
+      .trim()
+      .replace(/\s*-\s*/g, "-");
+  const numero = normalizeNumber(d["cbc:ID"]);
   if (!/^[A-Z0-9]{4}-\d{1,8}$/.test(numero))
     throw new Error("Serie-número inválido");
   const totals =
@@ -144,7 +148,7 @@ function parseUBL(xml, ruc) {
   )
     warnings.push("Descuentos/cargos o anticipos requieren revisión manual.");
   const references = list(d["cac:BillingReference"]).map((v) => ({
-    numero: text(v["cac:InvoiceDocumentReference"]?.["cbc:ID"]),
+    numero: normalizeNumber(v["cac:InvoiceDocumentReference"]?.["cbc:ID"]),
     tipo: text(v["cac:InvoiceDocumentReference"]?.["cbc:DocumentTypeCode"]),
     fecha: v["cac:InvoiceDocumentReference"]?.["cbc:IssueDate"]
       ? date(text(v["cac:InvoiceDocumentReference"]["cbc:IssueDate"]))

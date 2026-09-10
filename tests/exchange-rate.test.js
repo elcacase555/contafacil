@@ -8,6 +8,52 @@ const {
 } = require("../modules/contabilidad/exchange-rate");
 const { fixture } = require("./helpers");
 const { parseUBL } = require("../modules/contabilidad/parser");
+const { fiscalKey } = require("../modules/contabilidad/conciliation");
+
+test("SEE-SOL note references allow spaces around hyphen and malformed references do not stop the batch", async () => {
+  const invoice = parseUBL(fixture({ currency: "USD" }), "20100000001");
+  const note = parseUBL(
+    fixture({
+      currency: "USD",
+      kind: "CreditNote",
+      number: "FC01-1",
+      reference: " F001 - 00000001 ",
+    }),
+    "20100000001",
+  );
+  const bad = parseUBL(
+    fixture({
+      currency: "USD",
+      kind: "CreditNote",
+      number: "FC01-2",
+      reference: "F001 - uno",
+    }),
+    "20100000001",
+  );
+  assert.equal(note.original, "F001-00000001");
+  assert.equal(
+    fiscalKey(invoice.emisor, "01", " F001 - 00000001 "),
+    fiscalKey(invoice.emisor, "01", "F001-1"),
+  );
+  assert.throws(
+    () => fiscalKey(invoice.emisor, "01", "F001-1-extra"),
+    /inválido/,
+  );
+  const issues = await prepareExchange([invoice, note, bad], {
+    resolve: async (dates) =>
+      new Map(
+        dates.map((d) => [
+          d,
+          { rate: 3.5, fecha: d, url: "https://estadisticas.bcrp.gob.pe" },
+        ]),
+      ),
+  });
+  assert.equal(invoice.fx.rate, 3.5);
+  assert.equal(note.fx.rate, 3.5);
+  assert.equal(bad.fx, null);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].mensaje, /referencia de la nota/);
+});
 const payload = JSON.stringify({
   config: {
     series: [

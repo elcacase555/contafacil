@@ -7,8 +7,11 @@ const norm = (s) =>
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 function fiscalKey(emisor, tipo, numero) {
-  const [serie, n] = numero.split("-");
-  if (!serie || !/^\d+$/.test(n)) throw new Error("Número fiscal inválido");
+  const match = /^([A-Z0-9]{4})\s*-\s*(\d{1,8})$/i.exec(
+    String(numero ?? "").trim(),
+  );
+  if (!match) throw new Error("Número fiscal inválido");
+  const [, serie, n] = match;
   return [
     emisor,
     tipo.padStart(2, "0"),
