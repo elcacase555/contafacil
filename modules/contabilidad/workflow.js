@@ -152,6 +152,7 @@ function coordinator(db, dependencies = {}) {
           accounts: s.cuentas(),
           rules,
           progress,
+          exchangeRates: dependencies.exchangeRates,
           download:
             dependencies.downloadOrganized ||
             require("../../scripts-sunat/sunat-motor").descargarOrganizado,

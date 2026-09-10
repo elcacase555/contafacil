@@ -5,6 +5,7 @@ const fs = require("fs/promises"),
 const { parseUBL } = require("./parser"),
   { fiscalKey } = require("./conciliation");
 const { simulationBook, invoiceBook, NOTICE } = require("./simulation-excel");
+const { prepareExchange } = require("./exchange-rate");
 const label = (s) =>
   String(s)
     .normalize("NFKC")
@@ -23,6 +24,7 @@ async function simulate({
   rules,
   progress,
   download,
+  exchangeRates,
 }) {
   const parent = await fs.realpath(destination);
   if (!(await fs.stat(parent)).isDirectory())
@@ -34,6 +36,7 @@ async function simulate({
   await fs.mkdir(output); // Deliberately exclusive: never replace a previous accountant's work.
   const issues = [],
     docs = [],
+    references = [],
     seen = new Map();
   const folders = [
     "Registros/Ventas",
@@ -78,12 +81,14 @@ async function simulate({
       try {
         if ((await fs.stat(file)).size > 2 * 1024 * 1024)
           throw new Error("XML mayor a 2 MB");
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(
+        const text = require("./xml-encoding").decodeXml(
           await fs.readFile(file),
         );
         const d = parseUBL(text, empresa.ruc);
-        if (d.fecha < desde || d.fecha > hasta)
+        if (d.fecha < desde || d.fecha > hasta) {
+          references.push(d);
           throw new Error("XML fuera del rango: excluido de los reportes");
+        }
         d.key = fiscalKey(d.emisor, d.tipo, d.numero);
         d.archivo = path.relative(output, file);
         if (seen.has(d.key)) {
@@ -99,8 +104,6 @@ async function simulate({
         }
         seen.set(d.key, d.sha256);
         docs.push(d);
-        for (const warning of d.warnings)
-          issues.push({ etapa: "xml", documento: d.numero, mensaje: warning });
       } catch (e) {
         issues.push({
           etapa: "xml",
@@ -113,6 +116,13 @@ async function simulate({
   await walk(path.join(output, "Comprobantes de pago"));
   docs.sort(
     (a, b) => a.fecha.localeCompare(b.fecha) || a.key.localeCompare(b.key),
+  );
+  if (docs.some((d) => d.moneda === "USD"))
+    progress(
+      "Consultando tipo de cambio oficial SBS/BCRP y convirtiendo a soles…",
+    );
+  issues.push(
+    ...(await prepareExchange(docs, { resolve: exchangeRates, references })),
   );
   if (pdf < docs.length)
     issues.push({
@@ -163,7 +173,7 @@ async function simulate({
     NOTICE +
       "\r\n\r\n" +
       "Los archivos son autónomos: cambios en uno no se sincronizan con los demás ni con ContaFácil. Use Estados financieros como archivo principal.\r\n" +
-      "Incluye únicamente los XML de esta descarga. Complete saldos iniciales y ajustes. No se consultó SIRE ni se contabilizó en la aplicación.\r\n\r\n" +
+      "Incluye únicamente los XML de esta descarga. Los saldos de apertura y movimientos sin comprobantes no están incluidos. USD se convierte con la serie SBS venta publicada por BCRP; consulte fecha, tasa y fuente en XML. No se consultó SIRE ni se contabilizó en la aplicación.\r\n\r\n" +
       issues
         .map((i) => (i.documento || i.etapa) + ": " + i.mensaje)
         .join("\r\n"),
@@ -174,8 +184,9 @@ async function simulate({
     archivos: files,
     documentos: docs.length,
     pdf,
-    propuestos: docs.filter((d) => d.moneda === "PEN" && !d.warnings.length)
-      .length,
+    propuestos: docs.filter((d) => d.fx && !d.warnings.length).length,
+    convertidos: docs.filter((d) => d.moneda === "USD" && d.fx).length,
+    conversionesPendientes: docs.filter((d) => !d.fx).length,
     contabilizados: 0,
     simulacion: true,
     aviso: NOTICE,

@@ -2,6 +2,7 @@
 const fs = require("fs/promises");
 const path = require("path");
 const { service } = require("./service");
+const { decodeXml } = require("./xml-encoding");
 // Called only with the server's already authorized download destination, never
 // with a path received through the accounting API. Skip links and limit work.
 async function importFolder(db, tenant, client, folder) {
@@ -29,15 +30,7 @@ async function importFolder(db, tenant, client, folder) {
       try {
         const info = await fs.stat(file);
         if (info.size > 2 * 1024 * 1024) throw new Error("XML mayor a 2 MB");
-        const bytes = await fs.readFile(file),
-          header = bytes.subarray(0, 200).toString("ascii");
-        if (/encoding\s*=\s*["'](?!utf-8|UTF-8)/.test(header))
-          throw new Error(
-            "Codificación distinta de UTF-8: convertir y revisar antes de importar",
-          );
-        const r = s.importar(
-          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        );
+        const r = s.importar(decodeXml(await fs.readFile(file)));
         result[r.duplicado ? "duplicados" : "importados"]++;
       } catch (e) {
         result.errores.push({

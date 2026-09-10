@@ -11,9 +11,21 @@ test("download adapter imports valid XML, reports unrelated XML and skips duplic
   // Remove only this explicit temporary test directory after the run.
   t.after(async () => {
     db.close();
+    if (
+      !path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep) ||
+      !path.basename(dir).startsWith("contafacil-test-")
+    )
+      throw new Error("Unsafe cleanup");
     await fs.rm(dir, { recursive: true, force: true });
   });
-  await fs.writeFile(path.join(dir, "venta.xml"), fixture());
+  await fs.writeFile(
+    path.join(dir, "venta.xml"),
+    Buffer.from(
+      '<?xml version="1.0" encoding="ISO-8859-1"?>' +
+        fixture().replace("Proveedor SAC", "Muñoz y compañía"),
+      "latin1",
+    ),
+  );
   await fs.writeFile(
     path.join(dir, "otro.xml"),
     fixture({ supplier: "20999999999", customer: "20888888888" }),

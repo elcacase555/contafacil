@@ -1,5 +1,6 @@
 "use strict";
 const ExcelJS = require("exceljs");
+const { accountingFormat } = require("./excel-format");
 function worksheet(book, name, columns, rows, money = []) {
   const ws = book.addWorksheet(name, {
     views: [{ state: "frozen", ySplit: 1 }],
@@ -24,8 +25,12 @@ function worksheet(book, name, columns, rows, money = []) {
     from: { row: 1, column: 1 },
     to: { row: Math.max(1, ws.rowCount), column: columns.length },
   };
-  for (const key of money)
-    ws.getColumn(key).numFmt = "#,##0.00;[Red](#,##0.00)";
+  for (const key of money) ws.getColumn(key).numFmt = accountingFormat();
+  rows.forEach((r, i) => {
+    if (r.moneda)
+      for (const key of money)
+        ws.getRow(i + 2).getCell(key).numFmt = accountingFormat(r.moneda);
+  });
   return ws;
 }
 async function createWorkbook({

@@ -5,7 +5,12 @@ const ExcelJS = require("exceljs"),
   path = require("path");
 const NOTICE =
   "SIMULACIÓN CONTABLE. Revise y corrija la información antes de utilizarla. Preparada para agilizar el trabajo del contador; no es un registro SUNAT validado.";
-const amountFormat = '#,##0.00;[Red](#,##0.00);"-"';
+const { accountingFormat } = require("./excel-format");
+const { convertCents } = require("./exchange-rate");
+const amountFormat = accountingFormat();
+const fxRate = (d) => (d.moneda === "PEN" ? 1 : d.fx?.rate || null);
+const pen = (d, k) => (fxRate(d) ? convertCents(d[k], fxRate(d)) / 100 : null);
+const included = (d) => (fxRate(d) && !d.warnings.length ? 1 : 0);
 const serial = (s) =>
   Math.round(
     (Date.parse(s + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000,
@@ -131,7 +136,6 @@ async function simulationBook(
     "Balance general",
     "Estado resultados",
     "XML",
-    "Ajustes",
     "PCGE",
     "Instrucciones",
   ];
@@ -145,11 +149,15 @@ async function simulationBook(
       "Documento",
       "Emisor",
       "Receptor",
-      "Moneda",
-      "Base neta",
-      "IGV neto",
-      "Total neto",
+      "Moneda origen",
+      "Base neta S/",
+      "IGV neto S/",
+      "Total neto S/",
       "Incluido en asientos",
+      "T.C. SBS venta",
+      "Fecha cotización",
+      "Total origen",
+      "Estado conversión",
     ],
     "Registro compras": [
       "Fecha",
@@ -157,11 +165,15 @@ async function simulationBook(
       "Documento",
       "Emisor",
       "Receptor",
-      "Moneda",
-      "Base neta",
-      "IGV neto",
-      "Total neto",
+      "Moneda origen",
+      "Base neta S/",
+      "IGV neto S/",
+      "Total neto S/",
       "Incluido en asientos",
+      "T.C. SBS venta",
+      "Fecha cotización",
+      "Total origen",
+      "Estado conversión",
     ],
     Diario: [
       "Fecha",
@@ -220,17 +232,16 @@ async function simulationBook(
       "IGV usado",
       "Total usado",
       "Signo",
-      "Base neta",
-      "IGV neto",
-      "Total neto",
-    ],
-    Ajustes: [
-      "Fecha",
-      "Glosa",
-      "Cuenta PCGE",
-      "Debe S/",
-      "Haber S/",
-      "Revisión",
+      "Base neta S/",
+      "IGV neto S/",
+      "Total neto S/",
+      "T.C. SBS venta",
+      "Fecha cotización",
+      "Fecha base conversión",
+      "Fuente",
+      "Enlace fuente",
+      "Diferencia redondeo S/",
+      "Estado conversión",
     ],
     PCGE: ["Código", "Nombre", "Clase"],
     Instrucciones: ["Tema", "Detalle"],
@@ -240,10 +251,19 @@ async function simulationBook(
     x = s("XML");
   const sale = rules.cuentaVenta || "70111",
     purchase = rules.cuentaCompra || "6011";
+  accounts = [...accounts];
+  if (docs.some((d) => d.moneda === "USD")) {
+    for (const [codigo, nombre, clase] of [
+      ["6599", "Otros gastos de gestión — redondeo de conversión", "gasto"],
+      ["7599", "Otros ingresos de gestión — redondeo de conversión", "ingreso"],
+    ])
+      if (!accounts.some((a) => a.codigo === codigo))
+        accounts.push({ codigo, nombre, clase });
+  }
   const lineValues = [];
   docs.forEach((d, i) => {
     const r = i + 5,
-      include = d.moneda === "PEN" && !d.warnings.length ? 1 : 0,
+      include = included(d),
       sign = d.tipo === "07" ? -1 : 1;
     const account = d.direccion === "venta" ? sale : purchase,
       credit = rules.creditoFiscal ? 1 : 0;
@@ -268,6 +288,19 @@ async function simulationBook(
       credit,
       d.warnings.join(" · ") || null,
     ];
+    x.getCell("AA" + r).value = fxRate(d);
+    x.getCell("AB" + r).value = d.fx?.fecha ? serial(d.fx.fecha) : null;
+    x.getCell("AC" + r).value = d.fx?.fechaOperacion
+      ? serial(d.fx.fechaOperacion)
+      : null;
+    x.getCell("AD" + r).value = d.fx?.source || "Cotización pendiente";
+    x.getCell("AE" + r).value = d.fx?.url || "";
+    f(
+      x,
+      "AG" + r,
+      `IF(AND(ISNUMBER(AA${r}),AA${r}>0),"En soles","Pendiente: sin cotización")`,
+      fxRate(d) ? "En soles" : "Pendiente: sin cotización",
+    );
     for (const [col, raw, over, val] of [
       ["T", "I", "M", d.base],
       ["U", "J", "N", d.igv],
@@ -285,7 +318,24 @@ async function simulationBook(
       ["Y", "U", d.igv],
       ["Z", "V", d.total],
     ])
-      f(x, out + r, `${source}${r}*W${r}`, (val / 100) * sign);
+      f(
+        x,
+        out + r,
+        `IF(AND(ISNUMBER(AA${r}),AA${r}>0),ROUND(${source}${r}*AA${r},2)*W${r},"")`,
+        fxRate(d) ? (convertCents(val, fxRate(d)) / 100) * sign : "",
+      );
+    f(
+      x,
+      "AF" + r,
+      `IF(AND(ISNUMBER(AA${r}),AA${r}>0),ROUND(Z${r}-X${r}-Y${r},2),"")`,
+      fxRate(d)
+        ? (Math.round(
+            (pen(d, "total") - pen(d, "base") - pen(d, "igv")) * 100,
+          ) /
+            100) *
+            sign
+        : "",
+    );
     for (const col of ["M", "N", "O", "P", "Q", "R"])
       x.getCell(col + r).font = {
         color: { argb: "FF0000FF" },
@@ -301,9 +351,9 @@ async function simulationBook(
         error: "Use 0 o 1",
       };
     const signed = [
-      (d.base / 100) * sign,
-      (d.igv / 100) * sign,
-      (d.total / 100) * sign,
+      (pen(d, "base") || 0) * sign,
+      (pen(d, "igv") || 0) * sign,
+      (pen(d, "total") || 0) * sign,
     ];
     const expressions =
       d.direccion === "venta"
@@ -325,6 +375,19 @@ async function simulationBook(
             signed[1] * credit,
             -signed[2],
           ];
+    if (d.moneda === "USD") {
+      const delta =
+        Math.round(
+          (d.direccion === "venta"
+            ? signed[0] + signed[1] - signed[2]
+            : signed[2] - signed[0] - signed[1]) * 100,
+        ) / 100;
+      expressions.push(
+        d.direccion === "venta" ? `-'XML'!AF${r}` : `'XML'!AF${r}`,
+      );
+      nums.push(delta);
+      acc.push(delta * sign >= 0 ? "6599" : "7599");
+    }
     expressions.forEach((expr, k) => {
       const j = s("Diario"),
         jr = lineValues.length + 5;
@@ -332,15 +395,22 @@ async function simulationBook(
       f(j, "B" + jr, `'XML'!A${r}`, d.key);
       f(j, "C" + jr, `'XML'!D${r}`, d.numero);
       j.getCell("D" + jr).value =
-        (d.tipo === "07" ? "Reversión propuesta · " : "Propuesta · ") +
-        d.direccion;
+        k === 3
+          ? "Redondeo de conversión USD/PEN"
+          : (d.tipo === "07"
+              ? "Nota de crédito · "
+              : d.tipo === "08"
+                ? "Nota de débito · "
+                : "Factura · ") + d.direccion;
       if (
         (d.direccion === "venta" && k === 1) ||
         (d.direccion === "compra" && k === 0)
       )
         f(j, "E" + jr, `'XML'!Q${r}`, account);
+      else if (k === 3)
+        f(j, "E" + jr, `IF((${expr})*'XML'!W${r}>=0,"6599","7599")`, acc[k]);
       else j.getCell("E" + jr).value = acc[k];
-      const gate = `AND('XML'!P${r}=1,'XML'!H${r}="PEN")`,
+      const gate = `AND('XML'!P${r}=1,ISNUMBER('XML'!AA${r}),'XML'!AA${r}>0)`,
         v = include ? nums[k] : 0;
       f(j, "F" + jr, `IF(${gate},MAX(${expr},0),0)`, Math.max(v, 0));
       f(j, "G" + jr, `IF(${gate},MAX(-(${expr}),0),0)`, Math.max(-v, 0));
@@ -359,42 +429,14 @@ async function simulationBook(
     p.getRow(i + 5).values = [a.codigo, a.nombre, a.clase];
   });
   const endP = accounts.length + 4;
-  const adj = s("Ajustes");
-  for (let i = 5; i < 105; i++) {
-    adj.getRow(i).values = [null, null, null, null, null];
-    f(
-      adj,
-      "F" + i,
-      `IF(AND(OR(D${i}<>0,E${i}<>0),OR(ISBLANK(A${i}),ISBLANK(C${i}))),"REVISAR","")`,
-      "",
-    );
-    const j = s("Diario"),
-      r = lineValues.length + 5;
-    for (const [out, src] of [
-      ["A", "A"],
-      ["D", "B"],
-      ["E", "C"],
-      ["F", "D"],
-      ["G", "E"],
-    ])
-      f(
-        j,
-        out + r,
-        `IF('Ajustes'!A${i}="",${["D", "E"].includes(out) ? '""' : "0"},'Ajustes'!${src}${i})`,
-        ["D", "E"].includes(out) ? "" : 0,
-      );
-    j.getCell("B" + r).value = "AJ-" + i;
-    j.getCell("C" + r).value = "Ajuste manual";
-    f(j, "H" + r, `F${r}-G${r}`, 0);
-    lineValues.push({ fecha: 0, account: "", debe: 0, haber: 0 });
-  }
-  const endJ = lineValues.length + 4;
+  const endJ = Math.max(5, lineValues.length + 4);
   for (let r = 5; r <= endJ; r++)
     f(
       s("Diario"),
       "I" + r,
       `IF(E${r}="","",IFERROR(VLOOKUP(E${r}&"",'PCGE'!$A$5:$C$${endP},3,FALSE),"REVISAR CUENTA"))`,
-      accounts.find((a) => a.codigo === lineValues[r - 5].account)?.clase || "",
+      accounts.find((a) => a.codigo === lineValues[r - 5]?.account)?.clase ||
+        "",
     );
   const start = serial(desde),
     end = serial(hasta),
@@ -455,7 +497,7 @@ async function simulationBook(
   const metrics = [
     [8, "Activo", bs("activo"), totals.activo],
     [9, "Pasivo", bs("pasivo"), totals.pasivo],
-    [10, "Patrimonio aportado / ajustes", bs("patrimonio"), totals.patrimonio],
+    [10, "Patrimonio registrado", bs("patrimonio"), totals.patrimonio],
     [
       11,
       "Resultado del rango",
@@ -489,13 +531,42 @@ async function simulationBook(
   dash.getCell("A17").value = "Cuentas sin clasificar";
   f(dash, "B17", `COUNTIFS('Diario'!I5:I${endJ},"REVISAR CUENTA")`, 0);
   dash.getCell("B17").numFmt = "0";
-  dash.getCell("A20").value = "Ajustes con fecha o cuenta faltante";
-  f(dash, "B20", `COUNTIFS('Ajustes'!F5:F104,"REVISAR")`, 0);
-  adj.getColumn("C").numFmt = "@";
+  dash.getCell("A20").value = "Comprobantes sin conversión a soles";
+  f(
+    dash,
+    "B20",
+    `COUNTIFS('XML'!AG5:AG${endX},"Pendiente: sin cotización")`,
+    docs.filter((d) => !fxRate(d)).length,
+  );
+  dash.getCell("B20").numFmt = "0";
+  dash.getCell("A21").value = "Comprobantes excluidos de asientos";
+  f(
+    dash,
+    "B21",
+    `COUNTIFS('XML'!P5:P${endX},0,'XML'!A5:A${endX},"<>")`,
+    docs.filter((d) => !included(d)).length,
+  );
+  dash.getCell("B21").numFmt = "0";
   dash.getCell("A18").value =
-    "Estados del rango sin saldos de apertura, salvo ajustes ingresados.";
+    "Movimientos del rango. No incluye saldos de apertura.";
   dash.getCell("A19").value =
-    "Cambie correcciones y cuentas en XML; agregue partidas en Ajustes.";
+    "Importes en soles. Consulte las observaciones en XML.";
+  for (const name of [
+    "Dashboard",
+    "Balance general",
+    "Estado resultados",
+    "Balance",
+    "Diario",
+    "Mayor",
+  ])
+    f(
+      s(name),
+      "A3",
+      `IF(OR(COUNTIFS('XML'!AG5:AG${endX},"Pendiente: sin cotización")>0,COUNTIFS('XML'!P5:P${endX},0,'XML'!A5:A${endX},"<>")>0),"INCOMPLETO: hay comprobantes pendientes. Consulte XML e Instrucciones.","Soles. Movimientos de los XML del rango; no incluye saldos de apertura.")`,
+      docs.some((d) => !included(d))
+        ? "INCOMPLETO: hay comprobantes pendientes. Consulte XML e Instrucciones."
+        : "Soles. Movimientos de los XML del rango; no incluye saldos de apertura.",
+    );
   dash.getRow(23).values = [
     "Mes",
     "Ventas netas",
@@ -529,16 +600,16 @@ async function simulationBook(
       const val = docs
         .filter(
           (d) =>
-            d.moneda === "PEN" &&
+            fxRate(d) &&
             d.direccion === dir &&
             serial(d.fecha) >= Math.max(start, a) &&
             serial(d.fecha) < Math.min(end + 1, b),
         )
-        .reduce((n, d) => n + (d.base / 100) * (d.tipo === "07" ? -1 : 1), 0);
+        .reduce((n, d) => n + pen(d, "base") * (d.tipo === "07" ? -1 : 1), 0);
       f(
         dash,
         col + r,
-        `SUMIFS('XML'!$X$5:$X$${endX},'XML'!$G$5:$G$${endX},"${dir}",'XML'!$H$5:$H$${endX},"PEN",'XML'!$B$5:$B$${endX},">="&MAX(A${r},$B$5),'XML'!$B$5:$B$${endX},"<"&MIN(EDATE(A${r},1),$B$6+1))`,
+        `SUMIFS('XML'!$X$5:$X$${endX},'XML'!$G$5:$G$${endX},"${dir}",'XML'!$B$5:$B$${endX},">="&MAX(A${r},$B$5),'XML'!$B$5:$B$${endX},"<"&MIN(EDATE(A${r},1),$B$6+1))`,
         val,
       );
     }
@@ -575,34 +646,55 @@ async function simulationBook(
         let v = d[key];
         if (key === "fecha") v = serial(v);
         if (["base", "igv", "total"].includes(key))
-          v = (v / 100) * (d.tipo === "07" ? -1 : 1);
-        if (key === "include")
-          v = d.moneda === "PEN" && !d.warnings.length ? 1 : 0;
+          v = fxRate(d) ? pen(d, key) * (d.tipo === "07" ? -1 : 1) : "";
+        if (key === "include") v = included(d);
         f(reg, out + r, `'XML'!${src}${xr}`, v);
       }
-      r++;
-    });
-    // Totals never mix currencies; filtering is available per document and currency.
-    reg.getCell("L4").value = "Moneda";
-    reg.getCell("M4").value = "Total neto";
-    [
-      ...new Set(docs.filter((d) => d.direccion === dir).map((d) => d.moneda)),
-    ].forEach((currency, i) => {
-      const row = i + 5;
-      reg.getCell("L" + row).value = currency;
+      for (const [out, src, value] of [
+        ["K", "AA", fxRate(d) || ""],
+        ["L", "AB", d.fx?.fecha ? serial(d.fx.fecha) : ""],
+        ["N", "AG", fxRate(d) ? "En soles" : "Pendiente: sin cotización"],
+      ])
+        f(reg, out + r, `IF('XML'!${src}${xr}="","",'XML'!${src}${xr})`, value);
       f(
         reg,
-        "M" + row,
-        `SUMIFS(I5:I${Math.max(5, r - 1)},F5:F${Math.max(5, r - 1)},L${row})`,
-        docs
-          .filter((d) => d.direccion === dir && d.moneda === currency)
-          .reduce(
-            (n, d) => n + (d.total / 100) * (d.tipo === "07" ? -1 : 1),
-            0,
-          ),
+        "M" + r,
+        `'XML'!V${xr}*'XML'!W${xr}`,
+        (d.total / 100) * (d.tipo === "07" ? -1 : 1),
       );
+      reg.getCell("M" + r).numFmt = accountingFormat(d.moneda);
+      r++;
     });
-    finish(reg, ["G", "H", "I", "M"]);
+    reg.getCell("P4").value = "Total convertido S/";
+    f(
+      reg,
+      "P5",
+      `SUM(I5:I${Math.max(5, r - 1)})`,
+      docs
+        .filter((d) => d.direccion === dir && fxRate(d))
+        .reduce((n, d) => n + pen(d, "total") * (d.tipo === "07" ? -1 : 1), 0),
+    );
+    reg.getCell("P7").value = "Sin conversión";
+    f(
+      reg,
+      "P8",
+      `COUNTIFS(N5:N${Math.max(5, r - 1)},"Pendiente: sin cotización")`,
+      docs.filter((d) => d.direccion === dir && !fxRate(d)).length,
+    );
+    f(
+      reg,
+      "A3",
+      `IF(COUNTIFS(N5:N${Math.max(5, r - 1)},"Pendiente: sin cotización")>0,"INCOMPLETO: importes en soles pendientes de cotización. Los originales se conservan.","Importes en soles; moneda e importe original conservados para revisión.")`,
+      docs.some((d) => d.direccion === dir && !fxRate(d))
+        ? "INCOMPLETO: importes en soles pendientes de cotización. Los originales se conservan."
+        : "Importes en soles; moneda e importe original conservados para revisión.",
+    );
+    finish(reg, ["G", "H", "I", "P"]);
+    reg.getCell("P8").numFmt = "0";
+    reg.getColumn("K").numFmt = "0.000000";
+    reg.getColumn("L").numFmt = "dd/mm/yyyy";
+    reg.getColumn("N").width = 32;
+    reg.getColumn("P").width = 28;
     reg.getColumn("A").numFmt = "dd/mm/yyyy";
   }
   const major = s("Mayor"),
@@ -645,19 +737,23 @@ async function simulationBook(
     ],
     [
       "Asientos",
-      "Las notas de crédito invierten el signo. Los documentos especiales y moneda extranjera se excluyen inicialmente de los asientos; permanecen en registros y observaciones.",
+      "Las notas de crédito invierten el signo. USD se convierte automáticamente a soles cuando existe cotización y fecha verificables. Los documentos con inconsistencias permanecen visibles y pendientes de asientos.",
     ],
     [
       "Cuentas",
       "La cuenta de naturaleza es una propuesta. Revise compras de activos, servicios, mercaderías, IGV y motivos de notas.",
     ],
     [
-      "Ajustes",
-      "Hay 100 líneas editables para partidas adicionales. Ingrese ambos lados y compruebe el control Debe menos Haber. Se requieren fechas y cuentas existentes en PCGE.",
+      "Conversión USD/PEN",
+      "Se usa la serie SBS venta PD04640PD del API oficial del BCRP, con fecha de emisión como base de la simulación. En notas se usa la fecha de la factura referenciada. Si no hay cotización del día, se toma la última anterior dentro de siete días. Si falta, queda pendiente. Fecha, tasa y enlace están en XML, columnas AA:AE.",
+    ],
+    [
+      "Redondeo",
+      "Cada importe convertido se redondea a dos decimales. La diferencia entre total y base más IGV se lleva explícitamente a 6599/7599 como propuesta de redondeo. No se cambia el importe original del XML ni el IGV para forzar el cuadre.",
     ],
     [
       "Cobertura",
-      "Balance y resultados simulan únicamente los movimientos del rango. Complete apertura, costo de ventas, inventarios, bancos, depreciaciones y ajustes. No es DJ anual.",
+      "Balance y resultados cubren los movimientos de comprobantes del rango. Los XML no acreditan por sí solos saldos iniciales, costo de ventas, cobros/pagos ni depreciaciones. No incluye revaluación de saldos en USD al cierre ni cálculo definitivo de renta. Revise fecha de obligación tributaria y devengo si difieren de la emisión.",
     ],
     [
       "Dashboard",
@@ -669,7 +765,7 @@ async function simulationBook(
     ],
     [
       "Más filas",
-      "Las fórmulas cubren los XML de esta descarga y 100 líneas de Ajustes. Para nuevos comprobantes, genere otro rango; no pegue nuevas filas fuera de esos límites.",
+      "Las fórmulas cubren los XML de esta descarga. Para nuevos comprobantes, genere otro rango; no pegue nuevas filas fuera de esos límites.",
     ],
     ...issues.map((i) => [i.documento || i.etapa, i.mensaje]),
   ];
@@ -683,17 +779,23 @@ async function simulationBook(
     }
   });
   for (const [name, money] of [
-    ["XML", ["I", "J", "K", "M", "N", "O", "T", "U", "V", "X", "Y", "Z"]],
+    ["XML", ["X", "Y", "Z", "AF"]],
     ["Diario", ["F", "G", "H"]],
     ["Mayor", ["E", "F", "G"]],
     ["Balance", ["D", "E", "F", "G", "I"]],
-    ["Ajustes", ["D", "E"]],
     ["Estado resultados", ["B"]],
     ["PCGE", []],
   ])
     finish(s(name), money);
-  for (const name of ["Diario", "Ajustes"])
-    s(name).getColumn("A").numFmt = "dd/mm/yyyy;;;";
+  s("Diario").getColumn("A").numFmt = "dd/mm/yyyy;;;";
+  docs.forEach((d, i) => {
+    for (const col of ["I", "J", "K", "M", "N", "O", "T", "U", "V"])
+      x.getCell(col + (i + 5)).numFmt = accountingFormat(d.moneda);
+  });
+  x.getColumn("AA").numFmt = "0.000000";
+  for (const col of ["AB", "AC"]) x.getColumn(col).numFmt = "dd/mm/yyyy";
+  for (const col of ["AD", "AE"]) x.getColumn(col).width = 60;
+  x.getColumn("AG").width = 32;
   x.getColumn("B").numFmt = "dd/mm/yyyy";
   major.getColumn("B").numFmt = "dd/mm/yyyy;;;";
   dash.getColumn("A").width = 48;
@@ -702,6 +804,7 @@ async function simulationBook(
     dash.getColumn(col).numFmt = amountFormat;
   }
   for (const c of ["B5", "B6"]) dash.getCell(c).numFmt = "dd/mm/yyyy";
+  for (const c of ["B17", "B20", "B21"]) dash.getCell(c).numFmt = "0";
   for (const c of ["B14", "B16"])
     dash.addConditionalFormatting({
       ref: c,
@@ -741,17 +844,6 @@ async function simulationBook(
     ["Registro compras", ["B", "C", "D", "E"]],
   ])
     for (const col of columns) s(name).getColumn(col).numFmt = "@";
-  adj.eachRow((row, i) => {
-    if (i > 4)
-      row.eachCell({ includeEmpty: true }, (c) => {
-        c.font = { name: "Arial", size: 10, color: { argb: "FF0000FF" } };
-        c.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFFFF5DD" },
-        };
-      });
-  });
   s("Instrucciones").eachRow((row, i) => {
     if (i > 4) {
       row.getCell(1).alignment = { wrapText: true, vertical: "middle" };
@@ -767,7 +859,12 @@ async function simulationBook(
 async function invoiceBook(d) {
   const w = new ExcelJS.Workbook();
   w.calcProperties = { fullCalcOnLoad: true };
-  const s = sheet(w, "Comprobante", ["Descripción", "Base XML"], [90, 22]);
+  const s = sheet(
+    w,
+    "Comprobante",
+    ["Descripción", "Importe original", "Importe S/"],
+    [90, 24, 24],
+  );
   s.getCell("A2").value = d.numero + " · " + d.moneda;
   s.getCell("A3").value =
     d.fecha + " · Emisor " + d.emisor + " · Receptor " + d.receptor;
@@ -795,6 +892,57 @@ async function invoiceBook(d) {
   s.getCell("A" + (r + 6)).value =
     "Representación Excel derivada del XML. Revise descuentos, cargos y otros tributos.";
   finish(s, ["B"]);
+  s.getColumn("B").numFmt = accountingFormat(d.moneda);
+  s.getColumn("C").numFmt = amountFormat;
+  s.getCell("E4").value = "T.C. SBS venta";
+  s.getCell("F4").value = fxRate(d);
+  s.getCell("F4").numFmt = "0.000000";
+  s.getCell("E5").value = "Fecha cotización";
+  s.getCell("F5").value = d.fx?.fecha ? serial(d.fx.fecha) : null;
+  s.getCell("F5").numFmt = "dd/mm/yyyy";
+  s.getCell("E6").value = "Fuente";
+  s.getCell("F6").value =
+    d.fx?.source ||
+    (d.moneda === "PEN" ? "Moneda nacional" : "Cotización pendiente");
+  s.getCell("E7").value = "Enlace";
+  s.getCell("F7").value = d.fx?.url || "";
+  s.getColumn("E").width = 24;
+  s.getColumn("F").width = 65;
+  for (let i = 5; i <= r + 3; i++) {
+    const original = s.getCell("B" + i).result ?? s.getCell("B" + i).value;
+    f(
+      s,
+      "C" + i,
+      `IF(AND(ISNUMBER($F$4),$F$4>0),ROUND(B${i}*$F$4,2),"")`,
+      fxRate(d)
+        ? convertCents(Math.round(original * 100), fxRate(d)) / 100
+        : "",
+    );
+  }
+  f(
+    s,
+    "C" + r,
+    `SUM(C5:C${r - 1})`,
+    fxRate(d)
+      ? d.lines.reduce((n, l) => n + convertCents(l.base, fxRate(d)), 0) / 100
+      : "",
+  );
+  f(
+    s,
+    "C" + (r + 4),
+    `IF(AND(ISNUMBER($F$4),$F$4>0),ROUND(C${r + 1}+C${r + 2}-C${r + 3},2),"")`,
+    fxRate(d)
+      ? Math.round((pen(d, "base") + pen(d, "igv") - pen(d, "total")) * 100) /
+          100
+      : "",
+  );
+  s.getCell("A3").value =
+    d.fecha +
+    " · Emisor " +
+    d.emisor +
+    " · Receptor " +
+    d.receptor +
+    (fxRate(d) ? "" : " · Conversión a soles pendiente");
   return w.xlsx.writeBuffer();
 }
 module.exports = { simulationBook, invoiceBook, NOTICE, serial };

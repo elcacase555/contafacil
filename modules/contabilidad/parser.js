@@ -146,6 +146,9 @@ function parseUBL(xml, ruc) {
   const references = list(d["cac:BillingReference"]).map((v) => ({
     numero: text(v["cac:InvoiceDocumentReference"]?.["cbc:ID"]),
     tipo: text(v["cac:InvoiceDocumentReference"]?.["cbc:DocumentTypeCode"]),
+    fecha: v["cac:InvoiceDocumentReference"]?.["cbc:IssueDate"]
+      ? date(text(v["cac:InvoiceDocumentReference"]["cbc:IssueDate"]))
+      : null,
   }));
   if (
     kind !== "Invoice" &&
