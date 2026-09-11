@@ -95,7 +95,7 @@ async function seleccionarTipoConsulta(page, paquete, emitidaORecibida) {
     campoOculto.dispatchEvent(new Event('change', { bubbles: true }));
   }, info);
 
-  await esperar(500);
+  await esperar(300);
 }
 
 // ── LOGIN ──────────────────────────────────────────────────
@@ -108,7 +108,9 @@ async function login(page, credenciales, onProgreso) {
   await page.getByRole('textbox', { name: 'Contraseña' }).fill(credenciales.password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await page.waitForLoadState('networkidle');
-  await esperar(4000);
+  // En vez de un sleep fijo de 4s, esperamos el menú real de servicios.
+  await page.locator('#divOpcionServicio2').waitFor({ state: 'attached', timeout: 30000 });
+  await esperar(300); // pequeño margen para que Dojo termine de montar el menú
   avisar(onProgreso, '✅ Login exitoso', { etapa: 'login_ok' });
 }
 
@@ -116,21 +118,44 @@ async function login(page, credenciales, onProgreso) {
 async function navegarAlFormulario(page) {
   await page.locator('#divOpcionServicio2').waitFor({ state: 'attached', timeout: 30000 });
 
+  // Menú Dojo: los nodos suelen estar "attached" pero no visibles vía CSS,
+  // por eso seguimos con jsClick + sleeps cortos (híbrido) en vez de waits
+  // de visibilidad que fallarían.
   await jsClick(page, 'divOpcionServicio2');
-  await esperar(1200);
+  await esperar(500);
 
   await jsClick(page, 'nivel2_11_5');
-  await esperar(1200);
+  await esperar(500);
 
   await jsClick(page, 'nivel3_11_5_3');
-  await esperar(1200);
+  await esperar(500);
 
   await jsClick(page, 'nivel4_11_5_3_1_2');
-  await esperar(3000);
 
   await page.locator('iframe[name="iframeApplication"]').waitFor({ state: 'attached', timeout: 15000 });
   const iframe = page.locator('iframe[name="iframeApplication"]').contentFrame();
   await iframe.locator('[id="criterio.fec_desde"]').waitFor({ state: 'visible', timeout: 20000 });
+  await esperar(300); // Dojo: dejar que el formulario termine de inicializarse
+}
+
+// ¿El iframe del formulario de consulta sigue disponible?
+async function formularioListo(page) {
+  try {
+    const iframeLoc = page.locator('iframe[name="iframeApplication"]');
+    if (await iframeLoc.count() === 0) return false;
+    const iframe = iframeLoc.contentFrame();
+    await iframe.locator('[id="criterio.fec_desde"]').waitFor({ state: 'visible', timeout: 2000 });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Navega al formulario solo la primera vez (o si se perdió el iframe).
+// Los meses siguientes reutilizan el mismo formulario y solo cambian fechas/tipo.
+async function asegurarFormulario(page) {
+  if (await formularioListo(page)) return;
+  await navegarAlFormulario(page);
 }
 
 // ── BUSCAR FACTURAS DE UN MES (con el tipo de comprobante elegido) ──
@@ -145,14 +170,24 @@ async function buscarMes(page, configMes, paquete, emitidaORecibida) {
   await iframe.locator('[id="criterio.fec_hasta"]').fill(configMes.hasta);
 
   await iframe.locator('span').nth(1).click();
-  await esperar(4000);
+  // Híbrido: breve margen Dojo + esperar links "Descargar" (o timeout si no hay resultados).
+  await esperar(600);
+  try {
+    await iframe.getByRole('link', { name: /Descargar/ }).first().waitFor({ state: 'visible', timeout: 12000 });
+  } catch (_) {
+    // Mes sin comprobantes: la grilla queda vacía y no hay links. Es válido.
+  }
+  // TODO: si SUNAT muestra paginación en la grilla de resultados, aquí habría
+  // que recorrer páginas siguientes antes de dar por completa la búsqueda.
+  // Por ahora no hay UI de "siguiente página" detectada en el flujo actual.
 }
 
 // ── DESCARGAR TODOS LOS PDF DE UN MES ─────────────────────
 async function descargarPDFsDelMes(page, configMes, carpetaMes, onProgreso) {
   const iframe = page.locator('iframe[name="iframeApplication"]').contentFrame();
 
-  const links = await iframe.getByRole('link', { name: 'Descargar PDF' }).all();
+  // Cacheamos la lista una vez por mes; solo re-consultamos si un click falla.
+  let links = await iframe.getByRole('link', { name: 'Descargar PDF' }).all();
   const total = links.length;
 
   if (total === 0) {
@@ -164,12 +199,14 @@ async function descargarPDFsDelMes(page, configMes, carpetaMes, onProgreso) {
   let descargados = 0;
   for (let i = 0; i < total; i++) {
     try {
-      const linksActuales = await iframe.getByRole('link', { name: 'Descargar PDF' }).all();
-      if (!linksActuales[i]) break;
+      if (!links[i]) {
+        links = await iframe.getByRole('link', { name: 'Descargar PDF' }).all();
+      }
+      if (!links[i]) break;
 
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 30000 }),
-        linksActuales[i].click(),
+        links[i].click(),
       ]);
 
       const nombre = download.suggestedFilename() || `factura_${i + 1}.pdf`;
@@ -178,9 +215,11 @@ async function descargarPDFsDelMes(page, configMes, carpetaMes, onProgreso) {
       avisar(onProgreso, `  ✅ PDF [${descargados}/${total}] ${nombre}`, {
         etapa: 'pdf_progreso', mes: configMes.mes, descargados, total, nombre,
       });
-      await esperar(800);
+      await esperar(150);
     } catch (err) {
       avisar(onProgreso, `  ❌ Error PDF #${i + 1}: ${err.message}`, { etapa: 'pdf_error', mes: configMes.mes });
+      links = await iframe.getByRole('link', { name: 'Descargar PDF' }).all();
+      await esperar(400); // backoff solo ante error
     }
   }
   return descargados;
@@ -200,7 +239,8 @@ async function descargarXMLsDelMes(page, configMes, carpetaMes, onProgreso, paqu
   const iframe = page.locator('iframe[name="iframeApplication"]').contentFrame();
   const textoBoton = textoLinkXML(paquete);
 
-  const links = await iframe.getByRole('link', { name: textoBoton }).all();
+  // Cacheamos la lista una vez por mes; solo re-consultamos si un click falla.
+  let links = await iframe.getByRole('link', { name: textoBoton }).all();
   const total = links.length;
 
   if (total === 0) {
@@ -212,12 +252,14 @@ async function descargarXMLsDelMes(page, configMes, carpetaMes, onProgreso, paqu
   let descargados = 0;
   for (let i = 0; i < total; i++) {
     try {
-      const linksActuales = await iframe.getByRole('link', { name: textoBoton }).all();
-      if (!linksActuales[i]) break;
+      if (!links[i]) {
+        links = await iframe.getByRole('link', { name: textoBoton }).all();
+      }
+      if (!links[i]) break;
 
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 30000 }),
-        linksActuales[i].click(),
+        links[i].click(),
       ]);
 
       const nombre = download.suggestedFilename() || `factura_${i + 1}.zip`;
@@ -226,9 +268,11 @@ async function descargarXMLsDelMes(page, configMes, carpetaMes, onProgreso, paqu
       avisar(onProgreso, `  ✅ XML [${descargados}/${total}] ${nombre}`, {
         etapa: 'xml_progreso', mes: configMes.mes, descargados, total, nombre,
       });
-      await esperar(800);
+      await esperar(150);
     } catch (err) {
       avisar(onProgreso, `  ❌ Error XML #${i + 1}: ${err.message}`, { etapa: 'xml_error', mes: configMes.mes });
+      links = await iframe.getByRole('link', { name: textoBoton }).all();
+      await esperar(400); // backoff solo ante error
     }
   }
   return descargados;
@@ -499,10 +543,10 @@ async function descargarPDFsPorTipo(page, meses, carpetaBase, paquete, emitidaOR
     const carpetaMes = path.join(carpetaTipo, `Facturas ${configMes.mes}`);
     if (!fs.existsSync(carpetaMes)) fs.mkdirSync(carpetaMes, { recursive: true });
 
-    await navegarAlFormulario(page);
+    await asegurarFormulario(page);
     await buscarMes(page, configMes, paquete, emitidaORecibida);
     total += await descargarPDFsDelMes(page, configMes, carpetaMes, onProgreso);
-    await esperar(1000);
+    await esperar(300);
   }
 
   return { total, carpeta: carpetaTipo };
@@ -519,7 +563,7 @@ async function descargarXMLsPorTipo(page, meses, carpetaBase, paquete, emitidaOR
     const carpetaMes = path.join(carpetaTipo, `Facturas ${configMes.mes}`);
     if (!fs.existsSync(carpetaMes)) fs.mkdirSync(carpetaMes, { recursive: true });
 
-    await navegarAlFormulario(page);
+    await asegurarFormulario(page);
     await buscarMes(page, configMes, paquete, emitidaORecibida);
     const descargadosZip = await descargarXMLsDelMes(page, configMes, carpetaMes, onProgreso, paquete);
 
@@ -529,7 +573,7 @@ async function descargarXMLsPorTipo(page, meses, carpetaBase, paquete, emitidaOR
     }
 
     total += descargadosZip;
-    await esperar(1000);
+    await esperar(300);
   }
 
   return { total, carpeta: carpetaTipo };
@@ -617,12 +661,12 @@ async function descargarSoloExcel(credenciales, meses, carpetaDestino, onProgres
         const carpetaMesXml = path.join(carpetaXmlTemp, `Facturas ${configMes.mes}`);
         if (!fs.existsSync(carpetaMesXml)) fs.mkdirSync(carpetaMesXml, { recursive: true });
 
-        await navegarAlFormulario(page);
+        await asegurarFormulario(page);
         await buscarMes(page, configMes, paquete, tipo);
         const descargadosZip = await descargarXMLsDelMes(page, configMes, carpetaMesXml, onProgreso, paquete);
         if (descargadosZip > 0) extraerXMLsDeZips(carpetaMesXml);
         totalXmlTipo += descargadosZip;
-        await esperar(1000);
+        await esperar(300);
       }
 
       const carpetaExcelTipo = path.join(carpetaBase, `${etiqueta} Excel`);
@@ -679,28 +723,27 @@ async function descargarTodo(credenciales, meses, carpetaDestino, onProgreso, pa
       let totalPDF = 0;
       let totalXML = 0;
 
-      // FASE 1: PDF de todos los meses
-      avisar(onProgreso, `📄 ${etiqueta} - FASE 1: Descargando PDFs`, { etapa: 'fase', fase: 'pdf' });
+      // FASE 1+2: una sola búsqueda por mes → PDF y XML desde la misma grilla
+      // (antes se hacía menú+búsqueda completa para PDF y otra vez para XML).
+      avisar(onProgreso, `📄📦 ${etiqueta} - Descargando PDF + XML por mes`, { etapa: 'fase', fase: 'pdf_xml' });
       for (const configMes of meses) {
-        avisar(onProgreso, `📅 ${etiqueta} - ${configMes.mes}`, { etapa: 'mes_inicio', mes: configMes.mes, fase: 'pdf' });
+        avisar(onProgreso, `📅 ${etiqueta} - ${configMes.mes}`, { etapa: 'mes_inicio', mes: configMes.mes, fase: 'pdf_xml' });
         const carpetaMesPdf = path.join(carpetaPDF, `Facturas ${configMes.mes}`);
-        if (!fs.existsSync(carpetaMesPdf)) fs.mkdirSync(carpetaMesPdf, { recursive: true });
-
-        await navegarAlFormulario(page);
-        await buscarMes(page, configMes, paquete, tipo);
-        totalPDF += await descargarPDFsDelMes(page, configMes, carpetaMesPdf, onProgreso);
-        await esperar(1000);
-      }
-
-      // FASE 2: XML de todos los meses (se reutilizan después, no se vuelven a descargar)
-      avisar(onProgreso, `📦 ${etiqueta} - FASE 2: Descargando XML`, { etapa: 'fase', fase: 'xml' });
-      for (const configMes of meses) {
-        avisar(onProgreso, `📅 ${etiqueta} - ${configMes.mes}`, { etapa: 'mes_inicio', mes: configMes.mes, fase: 'xml' });
         const carpetaMesXml = path.join(carpetaXML, `Facturas ${configMes.mes}`);
+        if (!fs.existsSync(carpetaMesPdf)) fs.mkdirSync(carpetaMesPdf, { recursive: true });
         if (!fs.existsSync(carpetaMesXml)) fs.mkdirSync(carpetaMesXml, { recursive: true });
 
-        await navegarAlFormulario(page);
-        await buscarMes(page, configMes, paquete, tipo);
+        try {
+          await asegurarFormulario(page);
+          await buscarMes(page, configMes, paquete, tipo);
+        } catch (errNav) {
+          // Si el iframe/form se perdió a mitad de camino, re-navegamos y reintentamos una vez.
+          avisar(onProgreso, `  ♻️ Re-navegando al formulario tras fallo: ${errNav.message}`, { etapa: 'recuperacion', mes: configMes.mes });
+          await navegarAlFormulario(page);
+          await buscarMes(page, configMes, paquete, tipo);
+        }
+
+        totalPDF += await descargarPDFsDelMes(page, configMes, carpetaMesPdf, onProgreso);
         const descargadosZip = await descargarXMLsDelMes(page, configMes, carpetaMesXml, onProgreso, paquete);
 
         if (descargadosZip > 0) {
@@ -709,7 +752,7 @@ async function descargarTodo(credenciales, meses, carpetaDestino, onProgreso, pa
         }
 
         totalXML += descargadosZip;
-        await esperar(1000);
+        await esperar(300);
       }
 
       // FASE 3: Excel por factura, a partir de los XML ya descargados (sin volver a entrar a SUNAT)

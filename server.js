@@ -482,24 +482,30 @@ app.post('/api/descargar', requiereLogin, limitadorDescargas, async (req, res) =
         break;
       case 'consolidado': {
         // El consolidado necesita los XML primero. Si el contador eligió
-        // "ambas", se descargan Emitidas Y Recibidas (en la misma sesión
-        // de login) y se COMBINAN en una sola tabla con columna "Tipo",
-        // a diferencia de "Todo lo anterior" que genera consolidados
-        // separados por tipo.
+        // "ambas", se descargan Emitidas Y Recibidas en UNA sola sesión
+        // (un login / un browser, igual que descargarTodo) y se COMBINAN
+        // en una sola tabla con columna "Tipo", a diferencia de "Todo lo
+        // anterior" que genera consolidados separados por tipo.
         const tiposElegidos = tiposAProcesar(tipoComprobante);
         const fuentesConsolidado = [];
         let carpetaBaseConsolidado = carpetaCliente;
 
+        // Una sola llamada: descargarSoloXML ya itera emitidas/recibidas
+        // cuando tipoComprobante === 'ambas', reutilizando el mismo browser.
+        const sesionXml = await descargarSoloXML(
+          credenciales, meses, carpetaCliente, onProgreso, paquete, tipoComprobante
+        );
+
         for (const tipoUno of tiposElegidos) {
-          // Descargamos los XML para este tipo específico (una llamada
-          // por tipo; cada llamada abre y cierra su propia sesión, ya que
-          // descargarSoloXML está diseñado para un solo "tipoComprobante").
-          const sesionXml = await descargarSoloXML(credenciales, meses, carpetaCliente, onProgreso, paquete, tipoUno);
           const etiqueta = etiquetaPaqueteTipo(paquete, tipoUno);
           const etiquetaTipoTexto = tipoUno === 'emitidas' ? 'Emitida' : 'Recibida';
+          const resultadoTipo = sesionXml.resultadosPorTipo[tipoUno];
+          if (!resultadoTipo) {
+            throw new Error('No se obtuvieron XML para el tipo: ' + tipoUno);
+          }
 
           fuentesConsolidado.push({
-            carpetaXml: sesionXml.resultadosPorTipo[tipoUno].carpeta,
+            carpetaXml: resultadoTipo.carpeta,
             etiquetaTipo: etiquetaTipoTexto,
           });
 
